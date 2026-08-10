@@ -56,6 +56,36 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # M5 adds the Dockerfile; until then there is nothing to build.
-      # - name: Docker build smoke test
-      #   run: docker build -t ostrich-view:ci .
+      - name: Docker build smoke test
+        run: docker build -t ostrich-view:ci .
+
+      # Boot the built image once. /healthz needs neither a session nor
+      # Nextcloud, but src/config.js validates everything at startup -- so this
+      # catches a broken image (missing pdf.js assets, unwritable data dir, a
+      # required env var we forgot to document) that a build alone would not.
+      # The env values are deliberately fake; nothing here dials out.
+      - name: Container boot smoke test
+        run: |
+          docker run -d --name ostrich-view-ci \
+            -e NC_BASE_URL=http://nextcloud.invalid \
+            -e NC_USER=ostrich-viewer \
+            -e NC_APP_PASSWORD=not-a-real-app-password \
+            -e SESSION_SECRET=0000000000000000000000000000000000000000000000000000000000000000 \
+            -v "$PWD/config/viewers.example.json:/app/config/viewers.json:ro" \
+            -p 127.0.0.1:3000:3000 \
+            ostrich-view:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 3 http://127.0.0.1:3000/healthz; then
+              echo
+              echo "healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "container never became healthy; logs follow:" >&2
+          docker logs ostrich-view-ci >&2
+          exit 1
+
+      - name: Remove smoke-test container
+        if: ${{ always() }}
+        run: docker rm -f ostrich-view-ci || true

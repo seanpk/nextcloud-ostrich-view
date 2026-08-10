@@ -1,0 +1,65 @@
+# One service, one machine, no orchestration. `./deploy.sh` drives this file.
+
+services:
+  ostrich-view:
+    build: .
+    image: ostrich-view:latest
+    container_name: ostrich-view
+
+    # NC_BASE_URL, NC_USER, NC_APP_PASSWORD, SESSION_SECRET (see .env.example).
+    # The file must exist -- compose errors out rather than starting a
+    # half-configured container, which is the behaviour we want.
+    env_file: .env
+
+    environment:
+      # Stated here as well as in the Dockerfile so it wins over anything an
+      # older .env might have set: `production` is what makes the session
+      # cookie Secure-only and turns on template caching.
+      NODE_ENV: production
+
+    # Bound to loopback only. The Cloudflare tunnel runs on this same host and
+    # connects to http://localhost:3000; nothing on the LAN needs to reach the
+    # app directly, so nothing on the LAN can.
+    #
+    # If you change PORT in .env, change the *right-hand* number here to match
+    # (the left-hand one is the host side and can stay 3000).
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    volumes:
+      # Runtime state: preview-cache/ and state.json. Survives restarts and
+      # rebuilds; deleting it only costs a cold preview cache and everyone's
+      # "new since you last looked" baseline.
+      - ./data:/app/data
+      # Read-only: the app only ever reads viewers.json, and a container that
+      # cannot rewrite its own auth config is one less thing to think about.
+      - ./config:/app/config:ro
+
+    restart: unless-stopped
+
+    # --- Talking to Nextcloud over a shared docker network -------------------
+    # By default NC_BASE_URL points at Nextcloud's LAN address (see
+    # .env.example). If Nextcloud runs in Docker on this same Beelink, joining
+    # its network is tidier: traffic never leaves the docker bridge, and there
+    # is no trusted_domains entry to maintain for a LAN hostname.
+    #
+    # Find the network with `docker network ls`, then uncomment:
+    #
+    # networks:
+    #   - nextcloud
+    #
+    # ...along with the top-level block at the bottom of this file. With that
+    # in place NC_BASE_URL becomes the Nextcloud *container* name, e.g.
+    #   NC_BASE_URL=http://nextcloud
+    # (add :8080 or whatever port that container actually listens on). Note
+    # that Nextcloud still checks the Host header, so the container name has to
+    # appear in its `trusted_domains` too.
+
+# networks:
+#   nextcloud:
+#     # Created by Nextcloud's own compose project -- we join it, we don't own
+#     # it. `external: true` keeps compose from trying to create or delete it.
+#     external: true
+#     # If Nextcloud's compose project prefixes its network name (usually
+#     # <project>_<network>), name it explicitly:
+#     # name: nextcloud_default
