@@ -3,7 +3,7 @@ import ICAL from 'ical.js';
 
 import { NextcloudError } from './client.js';
 import { asArray, collectProps, decodeHref, stripTrailingSlash } from './dav-util.js';
-import { civilDay } from '../lib/tasks.js';
+import { civilDay } from '../lib/dates.js';
 
 /**
  * CalDAV: discovering the task lists shared with the viewer account and reading

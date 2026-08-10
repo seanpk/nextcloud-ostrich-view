@@ -1,9 +1,11 @@
 {#
-  Shared tile grid. One macro so home, folder listings and (in M4) the
-  "new since you last looked" section stay visually identical.
+  Shared tile grid. One macro so home, folder listings and the "new since you
+  last looked" section stay visually identical -- same thumbnail, same target
+  size, same "there is nothing to tap here" fallback.
 
-  M2 seam: when `tile.previewUrl` is set the thumbnail replaces the icon --
-  the markup below already branches on it.
+  When `tile.previewUrl` is set the thumbnail replaces the icon; when
+  `tile.folderLabel` is set (new-since tiles, shown out of their folder) the
+  containing folder replaces the file size on the muted second line.
 #}
 
 {% macro tile_body(tile) %}
@@ -17,7 +19,6 @@
   <span class="tile__text">
     <span class="tile__name">{{ tile.name }}</span>
     {% if tile.folderLabel %}
-      {# M4: muted containing-folder label on "new since" tiles. #}
       <span class="tile__meta tile__meta--folder">in {{ tile.folderLabel }}</span>
     {% elif tile.sizeLabel %}
       <span class="tile__meta">{{ tile.sizeLabel }}</span>

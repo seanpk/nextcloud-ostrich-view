@@ -104,8 +104,18 @@ export function parseMultistatus(xml, { davRoot, requestPath = '' } = {}) {
   }
 
   const multistatus = doc?.multistatus;
-  if (!multistatus) {
+  if (multistatus === undefined || multistatus === null) {
     throw new NextcloudError('PROPFIND response had no <multistatus> element.');
+  }
+
+  // `<d:multistatus/>` -- an element with no responses in it -- parses to the
+  // empty string, and it is a perfectly VALID answer: it is what a SEARCH sends
+  // back when nothing has changed, which is the ordinary case. Only a
+  // multistatus that is present but holds something other than responses is
+  // garbage worth throwing over.
+  if (typeof multistatus !== 'object') {
+    if (String(multistatus).trim() === '') return { self: null, entries: [] };
+    throw new NextcloudError('PROPFIND response had an unreadable <multistatus> element.');
   }
 
   const rootPrefix = stripTrailingSlash(davRoot);

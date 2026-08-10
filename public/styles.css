@@ -189,6 +189,19 @@ a {
   color: var(--accent-dark);
 }
 
+/* When she last looked, and what didn't fit: quiet lines around the tiles. */
+.section__note {
+  font-size: 1rem;
+  color: var(--ink-soft);
+  margin: -0.3rem 0 0.7rem;
+}
+
+.section__more {
+  font-size: 1rem;
+  color: var(--ink-faint);
+  margin: 0.6rem 0 0;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -300,6 +313,12 @@ a.tile:focus-visible {
 .tile__meta {
   font-size: 0.95rem;
   color: var(--ink-faint);
+}
+
+/* "in Biology 101 › Lectures" -- context for a tile shown out of its folder.
+   Long course names must wrap rather than push the tile past the viewport. */
+.tile__meta--folder {
+  overflow-wrap: anywhere;
 }
 
 .empty {

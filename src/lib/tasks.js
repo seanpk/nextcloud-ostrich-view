@@ -1,72 +1,20 @@
+import { civilDay, dayDelta, dayName, formatTime } from './dates.js';
+
 /**
  * Task view-models: everything the task page needs as plain, already-worded
  * strings, so the template does no thinking and the wording is unit-testable.
  *
- * Dates are the fiddly part. A VTODO due date is usually date-only
+ * Dates are the fiddly part, and the fiddly part lives in lib/dates.js, which
+ * the home page's "new since" note shares. A VTODO due date is usually date-only
  * (`DUE;VALUE=DATE:20260812`) -- a calendar day, not an instant -- and caldav.js
- * pins those to UTC midnight. Formatting them back in UTC is what keeps
- * "Aug 12" from becoming "Aug 11" for anyone west of Greenwich. Due dates that
- * really do carry a time are formatted in the server's local zone, which is the
+ * pins those to UTC midnight, which is what `utc: isDate` below is about: it
+ * keeps "Aug 12" from becoming "Aug 11" for anyone west of Greenwich. Due dates
+ * that really do carry a time are read in the server's local zone, which is the
  * household's zone.
  */
 
-const MS_PER_DAY = 86_400_000;
-
 /** Priority 1-4 is "high" per RFC 5545; below that Mom doesn't need telling. */
 const HIGH_PRIORITY_MAX = 4;
-
-/**
- * Calendar day as a comparable number, read in whichever zone applies.
- *
- * Exported because caldav.js orders open tasks by it: whatever decides which
- * day a due date is named after has to be the same thing that decides which day
- * it sorts into, or the list contradicts its own labels.
- *
- * @param {Date} date
- * @param {boolean} utc true for a date-only DUE (a calendar day pinned to UTC)
- */
-export function civilDay(date, utc) {
-  return utc
-    ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
-    : Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-/**
- * The five formatters this module can need -- four day shapes and one time --
- * each built once and kept.
- *
- * Constructing an `Intl.DateTimeFormat` is the expensive half of formatting
- * (it resolves the locale and the zone), and a task page asks for one or two
- * labels per task, so a fresh formatter per call was real work on a long list.
- *
- * Built on first use rather than at import: a formatter pins its time zone when
- * it is constructed, and the process must be free to set TZ after this module
- * has loaded (the unit suite does exactly that).
- */
-const FORMATTERS = new Map();
-
-function formatter(key, options) {
-  let cached = FORMATTERS.get(key);
-  if (!cached) {
-    cached = new Intl.DateTimeFormat('en-US', options);
-    FORMATTERS.set(key, cached);
-  }
-  return cached;
-}
-
-function formatDay(date, { utc, withYear }) {
-  return formatter(`day:${utc ? 'utc' : 'local'}:${withYear ? 'y' : 'n'}`, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    ...(withYear ? { year: 'numeric' } : {}),
-    ...(utc ? { timeZone: 'UTC' } : {}),
-  }).format(date);
-}
-
-function formatTime(date) {
-  return formatter('time', { hour: 'numeric', minute: '2-digit' }).format(date);
-}
 
 /**
  * "Due today" / "Due tomorrow" / "Due Tue, Aug 12" / "Was due Mon, Aug 4".
@@ -79,15 +27,14 @@ export function formatDueLabel(due, options = {}) {
   if (!(due instanceof Date) || Number.isNaN(due.getTime())) return null;
   const { isDate = true, now = new Date() } = options;
 
-  const delta = Math.round((civilDay(due, isDate) - civilDay(now, false)) / MS_PER_DAY);
+  const delta = dayDelta(due, now, { utc: isDate });
   const at = isDate ? '' : ` at ${formatTime(due)}`;
 
   if (delta === 0) return `Due today${at}`;
   if (delta === 1) return `Due tomorrow${at}`;
   if (delta === -1) return 'Was due yesterday';
 
-  const dueYear = isDate ? due.getUTCFullYear() : due.getFullYear();
-  const day = formatDay(due, { utc: isDate, withYear: dueYear !== now.getFullYear() });
+  const day = dayName(due, now, { utc: isDate });
   return delta < 0 ? `Was due ${day}` : `Due ${day}${at}`;
 }
 
@@ -121,14 +68,11 @@ export function formatCompletedLabel(completedAt, options = {}) {
   if (!(completedAt instanceof Date) || Number.isNaN(completedAt.getTime())) return null;
   const { now = new Date() } = options;
 
-  const delta = Math.round((civilDay(completedAt, false) - civilDay(now, false)) / MS_PER_DAY);
+  const delta = dayDelta(completedAt, now);
   if (delta === 0) return 'Finished today';
   if (delta === -1) return 'Finished yesterday';
 
-  return `Finished ${formatDay(completedAt, {
-    utc: false,
-    withYear: completedAt.getFullYear() !== now.getFullYear(),
-  })}`;
+  return `Finished ${dayName(completedAt, now)}`;
 }
 
 /**

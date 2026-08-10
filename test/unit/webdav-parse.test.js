@@ -145,6 +145,31 @@ test('parsePropfind: rejects junk instead of returning half a listing', () => {
   );
 });
 
+test('parseMultistatus: an empty multistatus is zero results, not a broken response', () => {
+  // A SEARCH that matched nothing answers 207 with exactly this, and it is the
+  // commonest answer there is: nothing has changed since she last looked.
+  for (const xml of [
+    '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>',
+    '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"></d:multistatus>',
+    '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">\n  \n</d:multistatus>',
+  ]) {
+    assert.deepEqual(
+      parseMultistatus(xml, { davRoot: DAV_ROOT, requestPath: '' }),
+      { self: null, entries: [] },
+      `should have parsed as empty: ${xml}`
+    );
+  }
+
+  // A multistatus that is present but holds something other than responses is
+  // still junk, and still throws.
+  assert.throws(
+    () => parseMultistatus('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">boom</d:multistatus>', {
+      davRoot: DAV_ROOT,
+    }),
+    NextcloudError
+  );
+});
+
 test('sortEntries: folders first, then files, each A-Z case-insensitively', () => {
   const entries = [
     { name: 'zebra.pdf', isFolder: false },

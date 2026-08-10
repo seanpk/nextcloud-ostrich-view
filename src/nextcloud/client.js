@@ -4,8 +4,9 @@
  * READ-ONLY BY CONSTRUCTION: this module deliberately exposes no way to issue
  * PUT / POST / DELETE / MKCOL / MOVE / COPY / PROPPATCH. The allow-list below
  * is the only set of verbs that can leave the process, so no amount of
- * downstream carelessness can turn the app into a writer. Later milestones may
- * add SEARCH (M4) and REPORT (M3) here -- and nothing else.
+ * downstream carelessness can turn the app into a writer. It is now complete:
+ * PROPFIND lists, REPORT reads tasks, SEARCH finds what changed, GET/HEAD
+ * fetch bytes. Nothing else is ever added here.
  */
 
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'PROPFIND', 'REPORT', 'SEARCH', 'OPTIONS']);

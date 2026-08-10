@@ -7,14 +7,22 @@
 
 {% block content %}
   {#
-    M4 seam: "New since you last looked". The route passes `newSince` (tiles
-    with a muted folderLabel) and `lastVisitedAt`; until then the list is empty
-    and the whole section stays out of the way.
+    "New since you last looked". The route passes `newSince` (tiles carrying a
+    muted folderLabel), `lastVisitedAt` (friendly wording for when the previous
+    sitting was) and `newSinceMore` (the overflow line past the 20-tile cap).
+    All three are empty on a first-ever visit, and after any upstream failure --
+    the section simply isn't there, and the folder buttons carry the page.
   #}
   {% if newSince and newSince.length %}
     <section class="section section--new" aria-labelledby="new-heading">
       <h2 class="section__title" id="new-heading">New since you last looked</h2>
+      {% if lastVisitedAt %}
+        <p class="section__note">You were last here {{ lastVisitedAt }}.</p>
+      {% endif %}
       {{ t.tile_grid(newSince, "Nothing new just yet.") }}
+      {% if newSinceMore %}
+        <p class="section__more">{{ newSinceMore }}</p>
+      {% endif %}
     </section>
   {% endif %}
 

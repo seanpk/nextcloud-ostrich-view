@@ -72,11 +72,12 @@ function previewUrlFor(entry, kind) {
  * answers for those paths with a calm "we can't show this one" page if someone
  * arrives by URL.)
  *
- * M4 note: this function is fed straight from `parseMultistatus` entries, and
- * "new since you last looked" tiles want a muted containing-folder label. Set
- * `folderLabel` on the returned object (the tile macro already renders it in
- * place of `sizeLabel`); everything else -- previewUrl included -- comes out of
- * here unchanged as long as the entry carries `fileId` and `etag`.
+ * The same function feeds "new since you last looked": those entries come from
+ * `search.js` in the identical `parseMultistatus` shape, and `buildNewSince`
+ * (src/lib/new-since.js) only adds a `folderLabel` on top, which the tile macro
+ * renders in place of `sizeLabel`. Everything else -- previewUrl included --
+ * comes out of here unchanged, which is why a new-since tile and a folder tile
+ * behave identically.
  *
  * @param {object} entry from `parsePropfind`
  * @returns {{name:string, path:string, isFolder:boolean, kind:string,

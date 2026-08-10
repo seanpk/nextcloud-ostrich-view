@@ -12,6 +12,7 @@ import nunjucks from 'nunjucks';
 import { loadConfig } from './config.js';
 import { createClient } from './nextcloud/client.js';
 import { createPreviewCache } from './nextcloud/previews.js';
+import { createVisitStore } from './store/visits.js';
 import { InvalidPathError } from './lib/paths.js';
 import { NextcloudError } from './nextcloud/client.js';
 import registerAuthRoutes from './routes/auth.js';
@@ -113,6 +114,9 @@ export async function buildApp(options = {}) {
     'previewCache',
     createPreviewCache({ dir: config.previewCacheDir, client: nextcloud, log: app.log })
   );
+  // "New since you last looked" state. Same directory, same volume: one mount
+  // carries everything this app remembers between restarts.
+  app.decorate('visits', createVisitStore({ dir: config.dataDir, log: app.log }));
 
   await app.register(fastifySecureSession, {
     key: config.sessionKey,

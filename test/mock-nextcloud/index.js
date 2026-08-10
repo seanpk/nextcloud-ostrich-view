@@ -6,7 +6,9 @@ import {
   fakeEtag,
   fakeFileId,
   indexByFileId,
+  lastModifiedOf,
   resolveNode,
+  walkFiles,
 } from './tree.js';
 import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
 
@@ -27,10 +29,15 @@ import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
  *    preview provider is off by default), which is exactly the case the icon
  *    fallback exists for.
  *
+ * M4 added the third verb: `SEARCH` on `/remote.php/dav/`, parsing just enough
+ * of the `d:basicsearch` body to honour the scope, the `getlastmodified`
+ * comparison and the result limit. `createMockNextcloud({ searchStatus: 405 })`
+ * turns it into a server that refuses SEARCH, which is how the walk fallback
+ * gets tested against something that behaves like a real refusal.
+ *
  * EXTENSION POINTS
  *  - M3 (done): `/remote.php/dav/calendars/<user>/` PROPFIND and `REPORT` live
  *    in calendars.js and are dispatched from `handle`.
- *  - M4: add the `SEARCH` verb on the files root.
  */
 
 export const TEST_USER = 'ostrich-viewer';
@@ -71,6 +78,7 @@ function checkAuth(req, user, password) {
 
 function responseXmlFor(davRoot, relPath, node) {
   const isFolder = node.type === 'folder';
+  const lastModified = isFolder ? FIXED_LAST_MODIFIED : lastModifiedOf(node);
   const href = `${davRoot}${relPath ? '/' + encodeHref(relPath) : ''}${isFolder ? '/' : ''}`;
   const id = fakeFileId(relPath === '' ? '/' : relPath);
   const etag = fakeEtag(relPath === '' ? '/' : relPath);
@@ -96,7 +104,7 @@ function responseXmlFor(davRoot, relPath, node) {
       <d:propstat>
         <d:prop>
           <oc:fileid>${id}</oc:fileid>
-          <d:getlastmodified>${FIXED_LAST_MODIFIED}</d:getlastmodified>
+          <d:getlastmodified>${lastModified}</d:getlastmodified>
           ${contentTypeProp}
           <d:resourcetype>${resourcetype}</d:resourcetype>
           <oc:size>${size}</oc:size>
@@ -122,6 +130,10 @@ export function buildMultistatus({ davRoot, relPath, node }) {
     }
   }
 
+  return wrapMultistatus(parts);
+}
+
+function wrapMultistatus(parts) {
   return `<?xml version="1.0"?>
 <d:multistatus xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
 ${parts.join('\n')}
@@ -130,7 +142,25 @@ ${parts.join('\n')}
 }
 
 /**
- * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string }} [options]
+ * A 207 for a SEARCH: a flat list of results, with no self entry and no
+ * particular relationship between them -- which is exactly the shape the app's
+ * parser has to cope with when it reuses `parseMultistatus` for search results.
+ *
+ * @param {{davRoot: string, files: Array<{path: string, node: object}>}} options
+ */
+export function buildSearchMultistatus({ davRoot, files }) {
+  return wrapMultistatus(files.map(({ path, node }) => responseXmlFor(davRoot, path, node)));
+}
+
+/** Nothing this mock is asked to accept is anywhere near this big. */
+const MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string,
+ *           searchStatus?: number|null }} [options]
+ *   searchStatus: answer every SEARCH with this status instead of running it.
+ *   405 is what a Nextcloud without the search backend sends, and is the case
+ *   the app's walk fallback exists for.
  * @returns {{ start: () => Promise<{url: string, port: number}>,
  *             stop: () => Promise<void>,
  *             url: () => string,
@@ -142,18 +172,25 @@ export function createMockNextcloud(options = {}) {
   const calendars = options.calendars ?? CALENDAR_FIXTURES;
   const user = options.user ?? TEST_USER;
   const password = options.password ?? TEST_APP_PASSWORD;
+  const searchStatus = options.searchStatus ?? null;
   const davRoot = davRootFor(user);
   const requests = [];
 
   const server = createServer((req, res) => {
     requests.push({ method: req.method, url: req.url });
 
-    // Drain the body; PROPFIND sends one and we don't need to inspect it.
-    req.resume();
-    req.on('end', () => handle(req, res));
+    // SEARCH is the one verb whose body we actually have to read, so bodies are
+    // collected (capped) rather than simply drained.
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+    });
+    req.on('end', () => handle(req, res, Buffer.concat(chunks).toString('utf8')));
   });
 
-  function handle(req, res) {
+  function handle(req, res, body) {
     const [rawPath, rawQuery = ''] = req.url.split('?');
     const pathname = decodeURIComponent(rawPath);
 
@@ -173,6 +210,11 @@ export function createMockNextcloud(options = {}) {
       return;
     }
 
+    if (req.method === 'SEARCH') {
+      handleSearch(req, res, pathname, body);
+      return;
+    }
+
     if (req.method === 'PROPFIND') {
       handlePropfind(req, res, pathname);
       return;
@@ -188,8 +230,64 @@ export function createMockNextcloud(options = {}) {
       return;
     }
 
-    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, PROPFIND, REPORT' });
+    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, PROPFIND, REPORT, SEARCH' });
     res.end(`Method ${req.method} not implemented by the mock`);
+  }
+
+  /**
+   * `SEARCH /remote.php/dav/` with a `d:basicsearch` body.
+   *
+   * Deliberately a shallow parser -- regexes over the body, no XML machinery.
+   * Its job is to be strict about the things the app could plausibly get wrong
+   * (the endpoint, the scope, the date literal's format) and indifferent to the
+   * rest, so the test tells us "the request was wrong" rather than quietly
+   * passing whatever we happened to send.
+   */
+  function handleSearch(req, res, pathname, body) {
+    if (searchStatus !== null) {
+      // A Nextcloud without the search backend. 405 carries an Allow header.
+      res.writeHead(searchStatus, {
+        'Content-Type': 'text/plain',
+        Allow: 'GET, PROPFIND, REPORT',
+      });
+      res.end('SEARCH is not supported by this server');
+      return;
+    }
+
+    if (pathname.replace(/\/+$/, '') !== '/remote.php/dav') {
+      res.writeHead(405, { 'Content-Type': 'text/plain' });
+      res.end('SEARCH is only supported on the DAV endpoint');
+      return;
+    }
+
+    const scope = decodeURIComponent(/<[^:>]*:?scope>[\s\S]*?<[^:>]*:?href>([^<]*)</.exec(body)?.[1] ?? '');
+    if (scope.replace(/\/+$/, '') !== `/files/${user}`) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end(`Unknown search scope: ${scope}`);
+      return;
+    }
+
+    const literal = /<[^:>]*:?literal>([^<]*)</.exec(body)?.[1] ?? '';
+    // Nextcloud parses this with DateTime::createFromFormat(ATOM, …) and treats
+    // anything else as timestamp 0 -- i.e. "match everything". Being strict here
+    // is the only way a wrongly-formatted literal shows up as a test failure
+    // instead of a suspiciously generous result set.
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(literal)) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end(`Unparseable date literal: ${literal}`);
+      return;
+    }
+
+    const sinceMs = Date.parse(literal);
+    const limit = Number(/<[^:>]*:?nresults>(\d+)</.exec(body)?.[1] ?? '50');
+
+    const matches = walkFiles(tree)
+      .filter(({ node }) => Date.parse(lastModifiedOf(node)) > sinceMs)
+      .sort((a, b) => Date.parse(lastModifiedOf(b.node)) - Date.parse(lastModifiedOf(a.node)))
+      .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 50);
+
+    res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end(buildSearchMultistatus({ davRoot: davRoot.replace(/\/+$/, ''), files: matches }));
   }
 
   /**
@@ -244,7 +342,7 @@ export function createMockNextcloud(options = {}) {
       'Content-Type': node.contentType ?? 'application/octet-stream',
       'Accept-Ranges': 'bytes',
       ETag: `"${fakeEtag(relPath)}"`,
-      'Last-Modified': FIXED_LAST_MODIFIED,
+      'Last-Modified': lastModifiedOf(node),
     };
 
     const range = parseRange(req.headers.range, bytes.length);

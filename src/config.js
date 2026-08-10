@@ -47,7 +47,9 @@ function normalizeBaseUrl(raw) {
 
 /**
  * viewers.json: [{ name, label, passphraseHash }]
- * `name` identifies the person (used by M4's "new since you last looked").
+ * `name` identifies the person, and is the key "new since you last looked"
+ * stores its visit timestamps under in <dataDir>/state.json -- so renaming a
+ * viewer resets their history, while relabelling one does not.
  */
 export function loadViewers(filePath) {
   let raw;
