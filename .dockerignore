@@ -1,0 +1,33 @@
+# Keep the build context to what the image actually needs. Everything here is
+# either rebuilt inside the image, secret, or only useful on a developer laptop.
+
+.git/
+.github/
+node_modules/
+
+# Secrets and per-deployment config. viewers.json is bind-mounted read-only at
+# runtime (see docker-compose.yml); baking it into the image would ship a
+# passphrase hash to anyone who can pull the image.
+.env
+config/viewers.json
+
+# Runtime state lives in the ./data volume on the host, never in the image.
+data/
+
+# Built inside the image by scripts/copy-pdfjs.js. Excluded so a stale local
+# copy can never end up in the image instead of the freshly built one.
+public/pdfjs/
+
+# Tests and their tooling are dev-only; the runtime image installs --omit=dev
+# and could not run them anyway.
+test/
+playwright.config.js
+playwright/
+playwright-report/
+test-results/
+
+# Documentation. Read on the host, not in the container.
+*.md
+
+.DS_Store
+npm-debug.log*
