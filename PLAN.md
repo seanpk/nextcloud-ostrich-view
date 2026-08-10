@@ -1,4 +1,4 @@
-# Nextcloud Ostrich Watch — Implementation Plan
+# Nextcloud Ostrich View — Implementation Plan
 
 ## Context
 
@@ -71,7 +71,7 @@ CI tests; deploys are hand-triggered on the Beelink (no automation across the tu
 
 ```
 ssh beelink
-cd /opt/ostrich-watch && git pull && docker compose up -d --build
+cd /opt/ostrich-view && git pull && docker compose up -d --build
 ```
 
 Wrapped in a committed `deploy.sh` (pull, build, restart, then curl `/healthz` and print pass/fail). First-time setup (clone, `.env`, `viewers.json`, tunnel hostname) documented step-by-step in the README.

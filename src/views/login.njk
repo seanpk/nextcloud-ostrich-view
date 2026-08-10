@@ -1,0 +1,31 @@
+{% extends "layout.njk" %}
+
+{% block heading %}Welcome{% endblock %}
+
+{% block content %}
+  <img class="login__logo" src="/public/logo-small.png" alt="Nextcloud Ostrich View logo" width="220" height="220" />
+
+  <p class="lede">Type your passphrase to see the shared files.</p>
+
+  {% if error %}
+    <p class="notice notice--error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form class="login" method="post" action="/login" autocomplete="on">
+    <label class="login__label" for="passphrase">Your passphrase</label>
+    <input
+      class="login__input"
+      id="passphrase"
+      name="passphrase"
+      type="password"
+      autocomplete="current-password"
+      autocapitalize="none"
+      autocorrect="off"
+      spellcheck="false"
+      inputmode="text"
+      required
+      autofocus
+    />
+    <button class="btn btn--primary login__submit" type="submit">Enter</button>
+  </form>
+{% endblock %}

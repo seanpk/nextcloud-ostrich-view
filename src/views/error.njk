@@ -1,0 +1,8 @@
+{% extends "layout.njk" %}
+
+{% block heading %}{{ title }}{% endblock %}
+
+{% block content %}
+  <p class="lede">{{ message }}</p>
+  <p><a class="btn btn--primary" href="{{ backHref | default('/') }}">Go to the start</a></p>
+{% endblock %}

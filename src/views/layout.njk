@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <title>{{ title }} · Ostrich View</title>
+    <link rel="stylesheet" href="/public/styles.css" />
+    <link rel="icon" href="/public/icons/folder.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    {#
+      The top bar is fixed so the Back button is reachable from anywhere on the
+      page without scrolling. It is hidden only on home and login, where there
+      is nowhere to go back to.
+    #}
+    <header class="topbar">
+      <div class="topbar__inner">
+        {% if showBack %}
+          <a class="back" href="{{ backHref | default('/') }}" rel="nofollow">
+            <span class="back__chevron" aria-hidden="true">&lsaquo;</span>
+            <span class="back__label">Back</span>
+          </a>
+        {% else %}
+          <span class="back-placeholder" aria-hidden="true"></span>
+        {% endif %}
+
+        <span class="topbar__brand">Ostrich View</span>
+
+        {#
+          M3 seam: the Files / Tasks toggle drops in here. Set showToggle=true
+          and section='files'|'tasks' from the route.
+        #}
+        {% if showToggle %}
+          <nav class="toggle" aria-label="Sections">
+            <a class="toggle__option {{ 'is-current' if section == 'files' }}" href="/">Files</a>
+            <a class="toggle__option {{ 'is-current' if section == 'tasks' }}" href="/tasks">Tasks</a>
+          </nav>
+        {% endif %}
+      </div>
+    </header>
+
+    <main class="page" id="main">
+      {% if breadcrumbs and breadcrumbs.length > 1 %}
+        {# Unobtrusive "where am I" line -- muted, small, never the main event. #}
+        <nav class="crumbs" aria-label="Current location">
+          {% for crumb in breadcrumbs %}
+            {% if loop.last %}
+              <span class="crumbs__here" aria-current="page">{{ crumb.name }}</span>
+            {% else %}
+              <a class="crumbs__link" href="{{ crumb.href }}">{{ crumb.name }}</a>
+              <span class="crumbs__sep" aria-hidden="true">/</span>
+            {% endif %}
+          {% endfor %}
+        </nav>
+      {% endif %}
+
+      <h1 class="page__title">{% block heading %}{{ title }}{% endblock %}</h1>
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      {% if viewer %}
+        <form class="footer__form" method="post" action="/logout">
+          <button class="footer__logout" type="submit">Sign out</button>
+        </form>
+      {% endif %}
+    </footer>
+  </body>
+</html>

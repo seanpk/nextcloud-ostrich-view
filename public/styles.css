@@ -1,0 +1,454 @@
+/*
+ * Ostrich View -- mobile-first styles.
+ *
+ * Audience: one tech-averse older user on a phone. The rules that follow from
+ * that are non-negotiable:
+ *   - nothing interactive smaller than 56px tall (the 44px guideline is a
+ *     floor, not a target);
+ *   - one column on a phone, so there is never a horizontal scrollbar and
+ *     never a mis-tap;
+ *   - big, calm type at high contrast, no animation, no cleverness.
+ */
+
+:root {
+  --ink: #14181d;
+  --ink-soft: #4a5560;
+  --ink-faint: #6b7580;
+  --paper: #f7f8fa;
+  --card: #ffffff;
+  --line: #d3d9e0;
+  --accent: #1c4f8b;
+  --accent-dark: #143a67;
+  --accent-tint: #e8eff8;
+  --danger: #8c2020;
+  --danger-tint: #fbeaea;
+
+  --topbar-h: 4.5rem;
+  --radius: 14px;
+  --tap: 3.5rem; /* 56px minimum for anything tappable */
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* 18px base: comfortably readable without pinch-zoom. */
+  font-size: 112.5%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  /* Belt and braces against a stray wide child causing sideways scroll. */
+  overflow-x: hidden;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* ---------- Top bar with the always-reachable Back button ---------- */
+
+.topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 10;
+  min-height: var(--topbar-h);
+  background: var(--card);
+  border-bottom: 2px solid var(--line);
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: var(--topbar-h);
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0 0.75rem;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 1.1rem 0 0.85rem;
+  border-radius: var(--radius);
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.back-placeholder {
+  /* Reserves the bar's height on pages with nowhere to go back to. */
+  display: inline-block;
+  min-height: var(--tap);
+  width: 0;
+}
+
+.back:hover,
+.back:focus-visible {
+  background: var(--accent-dark);
+}
+
+.back__chevron {
+  font-size: 1.9rem;
+  line-height: 1;
+  margin-top: -0.15rem;
+}
+
+.topbar__brand {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* M3 seam: Files / Tasks toggle. */
+.toggle {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.toggle__option {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 1rem;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.toggle__option.is-current {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+/* ---------- Page shell ---------- */
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: calc(var(--topbar-h) + 1.25rem) 0.9rem 2rem;
+  padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 1.25rem);
+}
+
+.page__title {
+  font-size: 1.9rem;
+  line-height: 1.2;
+  margin: 0 0 1rem;
+  /* Long folder names must wrap, never widen the page. */
+  overflow-wrap: anywhere;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 1.25rem;
+}
+
+.section {
+  margin: 0 0 2rem;
+}
+
+.section__title {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin: 0 0 0.6rem;
+}
+
+.section--new .section__title {
+  color: var(--accent-dark);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Breadcrumb (deliberately quiet) ---------- */
+
+.crumbs {
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+  margin: 0 0 0.5rem;
+  /* Long trails wrap rather than scroll sideways. */
+  overflow-wrap: anywhere;
+}
+
+.crumbs__link {
+  color: var(--ink-faint);
+  text-decoration: underline;
+}
+
+.crumbs__sep {
+  padding: 0 0.3rem;
+}
+
+.crumbs__here {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+/* ---------- Tiles ---------- */
+
+.tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr; /* phone: one full-width button per row */
+  gap: 0.75rem;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  min-height: 5.5rem; /* 88px -- comfortably above the 44px floor */
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+a.tile:hover,
+a.tile:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.tile--static {
+  /* M1: files aren't openable yet, so they read as labels, not buttons. */
+  background: var(--card);
+  border-style: dashed;
+  color: var(--ink-soft);
+}
+
+.tile__thumb {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
+.tile__icon,
+.tile__preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tile__preview {
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.tile__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* lets long names wrap inside the flex row */
+}
+
+.tile__name {
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.tile__meta {
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+}
+
+.empty {
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  background: var(--card);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin: 0;
+}
+
+/* ---------- Login ---------- */
+
+.login__logo {
+  display: block;
+  width: 220px;
+  max-width: 60vw;
+  height: auto;
+  margin: 0 auto 1.25rem;
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 26rem;
+}
+
+.login__label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.login__input {
+  min-height: var(--tap);
+  font-size: 1.35rem;
+  padding: 0.6rem 0.85rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
+
+.login__input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+  border-radius: var(--radius);
+  border: 2px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.btn--primary:hover,
+.btn--primary:focus-visible {
+  background: var(--accent-dark);
+}
+
+.login__submit {
+  width: 100%;
+}
+
+.notice {
+  font-size: 1.1rem;
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin: 0 0 1rem;
+  border: 2px solid transparent;
+}
+
+.notice--error {
+  background: var(--danger-tint);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ---------- Footer ---------- */
+
+.footer {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem 0.9rem calc(2rem + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+}
+
+.footer__form {
+  margin: 0;
+}
+
+.footer__logout {
+  /* Intentionally small and plain: a way out, not an invitation. */
+  background: none;
+  border: 0;
+  padding: 0.75rem 1rem;
+  min-height: var(--tap);
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---------- Focus ---------- */
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Wider screens ---------- */
+
+@media (min-width: 40rem) {
+  .tiles {
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  }
+
+  .tile {
+    min-height: 6rem;
+  }
+
+  .page__title {
+    font-size: 2.2rem;
+  }
+
+  .login__submit {
+    width: auto;
+    min-width: 12rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

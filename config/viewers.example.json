@@ -1,0 +1,7 @@
+[
+  {
+    "name": "mom",
+    "label": "Mom",
+    "passphraseHash": "$2b$12$REPLACE.THIS.WITH.OUTPUT.OF.scripts/hash-passphrase.js.aaaaaaaaaaaa"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "mom",
+    "label": "Mom",
+    "_comment": "Test-only. Passphrase is the string: correct horse",
+    "passphraseHash": "$2a$10$ftnNXebIIb9wQ00OUDTkveYAXJ9Tb3gsmg53YQCCrg4K7jK.fz/3O"
+  },
+  {
+    "name": "gran",
+    "label": "Gran",
+    "_comment": "Test-only. Passphrase is the string: battery staple",
+    "passphraseHash": "$2a$10$k9LH8grb1gSb6tLAdwE6xuKZQhNd1RGJii.MK7tB6Ghh5vjWTELSS"
+  }
+]

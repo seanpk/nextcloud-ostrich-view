@@ -1,0 +1,11 @@
+{% extends "layout.njk" %}
+{% import "_tiles.njk" as t %}
+
+{% block heading %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="section" aria-labelledby="contents-heading">
+    <h2 class="section__title visually-hidden" id="contents-heading">Contents of {{ title }}</h2>
+    {{ t.tile_grid(tiles, "This folder is empty.") }}
+  </section>
+{% endblock %}

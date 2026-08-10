@@ -1,0 +1,25 @@
+{% extends "layout.njk" %}
+{% import "_tiles.njk" as t %}
+
+{% block heading %}
+  {% if viewer %}Hello, {{ viewer.label }}{% else %}Shared files{% endif %}
+{% endblock %}
+
+{% block content %}
+  {#
+    M4 seam: "New since you last looked". The route passes `newSince` (tiles
+    with a muted folderLabel) and `lastVisitedAt`; until then the list is empty
+    and the whole section stays out of the way.
+  #}
+  {% if newSince and newSince.length %}
+    <section class="section section--new" aria-labelledby="new-heading">
+      <h2 class="section__title" id="new-heading">New since you last looked</h2>
+      {{ t.tile_grid(newSince, "Nothing new just yet.") }}
+    </section>
+  {% endif %}
+
+  <section class="section" aria-labelledby="folders-heading">
+    <h2 class="section__title" id="folders-heading">Folders</h2>
+    {{ t.tile_grid(tiles, "Nothing has been shared with you yet.") }}
+  </section>
+{% endblock %}

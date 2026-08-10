@@ -1,0 +1,48 @@
+{#
+  Shared tile grid. One macro so home, folder listings and (in M4) the
+  "new since you last looked" section stay visually identical.
+
+  M2 seam: when `tile.previewUrl` is set the thumbnail replaces the icon --
+  the markup below already branches on it.
+#}
+
+{% macro tile_body(tile) %}
+  <span class="tile__thumb">
+    {% if tile.previewUrl %}
+      <img class="tile__preview" src="{{ tile.previewUrl }}" alt="Preview of {{ tile.name }}" loading="lazy" />
+    {% else %}
+      <img class="tile__icon" src="{{ tile.icon }}" alt="" aria-hidden="true" />
+    {% endif %}
+  </span>
+  <span class="tile__text">
+    <span class="tile__name">{{ tile.name }}</span>
+    {% if tile.folderLabel %}
+      {# M4: muted containing-folder label on "new since" tiles. #}
+      <span class="tile__meta tile__meta--folder">in {{ tile.folderLabel }}</span>
+    {% elif tile.sizeLabel %}
+      <span class="tile__meta">{{ tile.sizeLabel }}</span>
+    {% endif %}
+  </span>
+{% endmacro %}
+
+{% macro tile_grid(tiles, empty_message) %}
+  {% if tiles and tiles.length %}
+    <ul class="tiles">
+      {% for tile in tiles %}
+        <li class="tiles__item">
+          {% if tile.href %}
+            <a class="tile tile--{{ tile.kind }}" href="{{ tile.href }}">
+              {{ tile_body(tile) }}
+            </a>
+          {% else %}
+            <div class="tile tile--{{ tile.kind }} tile--static">
+              {{ tile_body(tile) }}
+            </div>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty">{{ empty_message }}</p>
+  {% endif %}
+{% endmacro %}
