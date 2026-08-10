@@ -1,0 +1,33 @@
+{% extends "layout.njk" %}
+
+{% block heading %}Shared task lists{% endblock %}
+
+{% block content %}
+  {#
+    Same tile shape as the folder pages on purpose: one thing to learn, not two.
+    The colour block on the left is the calendar's own colour, bucketed into a
+    class because our CSP forbids inline styles.
+  #}
+  <section class="section" aria-labelledby="lists-heading">
+    <h2 class="section__title" id="lists-heading">Task lists</h2>
+
+    {% if lists and lists.length %}
+      <ul class="tiles">
+        {% for list in lists %}
+          <li class="tiles__item">
+            <a class="tile tile--tasklist {{ list.accentClass }}" href="{{ list.href }}">
+              <span class="tile__thumb" aria-hidden="true">
+                <span class="tasklist__mark"></span>
+              </span>
+              <span class="tile__text">
+                <span class="tile__name">{{ list.displayName }}</span>
+              </span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty">No task lists have been shared with you yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

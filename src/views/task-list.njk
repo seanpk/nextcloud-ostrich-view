@@ -1,0 +1,17 @@
+{% extends "layout.njk" %}
+{% import "_task.njk" as k %}
+
+{% block heading %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="section section--todo" aria-labelledby="todo-heading">
+    <h2 class="section__title" id="todo-heading">Still to do</h2>
+    {{ k.task_list(open, "Nothing left to do on this list.") }}
+  </section>
+
+  {# Done work is worth seeing -- quietly, and newest first. #}
+  <section class="section section--done" aria-labelledby="done-heading">
+    <h2 class="section__title" id="done-heading">Done</h2>
+    {{ k.task_list(done, "Nothing finished on this list yet.", "tasks--done") }}
+  </section>
+{% endblock %}

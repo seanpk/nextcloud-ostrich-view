@@ -15,6 +15,7 @@ import { NextcloudError } from './nextcloud/client.js';
 import registerAuthRoutes from './routes/auth.js';
 import registerHomeRoutes from './routes/home.js';
 import registerFileRoutes from './routes/files.js';
+import registerTaskRoutes from './routes/tasks.js';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const VIEWS_DIR = join(HERE, 'views');
@@ -219,6 +220,7 @@ export async function buildApp(options = {}) {
   await app.register(registerAuthRoutes);
   await app.register(registerHomeRoutes);
   await app.register(registerFileRoutes);
+  await app.register(registerTaskRoutes);
 
   return app;
 }
