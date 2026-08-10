@@ -177,20 +177,23 @@ export function parsePropfind(xml, options) {
 }
 
 /**
- * Depth-1 PROPFIND of one folder under the viewer account's files home.
+ * One PROPFIND, parsed. The whole conversation with Nextcloud lives here so
+ * that the depth-0 and depth-1 callers cannot drift apart -- notably over the
+ * redirect follow, which is easy to leave out of a second copy and impossible
+ * to notice until a particular deployment breaks.
  *
  * @param {ReturnType<import('./client.js').createClient>} client
- * @param {string} relPath normalized relative path ('' = root)
- * @returns {Promise<Array<object>>} children, self-entry removed
+ * @param {string} normalized already normalized relative path ('' = root)
+ * @param {{depth: '0'|'1', notFoundMessage: string}} options
+ * @returns {Promise<{self: object|null, entries: Array<object>, url: string}>}
  */
-export async function propfind(client, relPath = '') {
-  const normalized = normalizeRelPath(relPath);
+async function doPropfind(client, normalized, { depth, notFoundMessage }) {
   const encoded = encodePath(normalized);
   const url = encoded ? `${client.filesRoot}/${encoded}` : client.filesRoot;
 
   const propfindOptions = {
     headers: {
-      Depth: '1',
+      Depth: depth,
       'Content-Type': 'application/xml; charset=utf-8',
     },
     body: PROPFIND_BODY,
@@ -210,11 +213,7 @@ export async function propfind(client, relPath = '') {
   }
 
   if (response.status === 404) {
-    throw new NextcloudError(`Folder not found: ${normalized || '/'}`, {
-      status: 404,
-      method: 'PROPFIND',
-      url,
-    });
+    throw new NextcloudError(notFoundMessage, { status: 404, method: 'PROPFIND', url });
   }
   if (response.status !== 207) {
     const body = await response.text().catch(() => '');
@@ -226,10 +225,25 @@ export async function propfind(client, relPath = '') {
     });
   }
 
-  const xml = await response.text();
-  const { self, entries } = parseMultistatus(xml, {
+  const parsed = parseMultistatus(await response.text(), {
     davRoot: client.davRoot,
     requestPath: normalized,
+  });
+  return { ...parsed, url };
+}
+
+/**
+ * Depth-1 PROPFIND of one folder under the viewer account's files home.
+ *
+ * @param {ReturnType<import('./client.js').createClient>} client
+ * @param {string} relPath normalized relative path ('' = root)
+ * @returns {Promise<Array<object>>} children, self-entry removed
+ */
+export async function propfind(client, relPath = '') {
+  const normalized = normalizeRelPath(relPath);
+  const { self, entries, url } = await doPropfind(client, normalized, {
+    depth: '1',
+    notFoundMessage: `Folder not found: ${normalized || '/'}`,
   });
 
   // A Depth-1 PROPFIND on a plain file answers 207 with only the self entry;
@@ -243,6 +257,49 @@ export async function propfind(client, relPath = '') {
   }
 
   return entries;
+}
+
+/**
+ * Depth-0 PROPFIND of a single resource: enough metadata to serve `/view/`,
+ * `/content/` and `/preview/` without listing (or trusting) its parent.
+ *
+ * Returns the entry for the path itself, folders included -- callers decide
+ * what to do with `isFolder` (the media routes 404 on it). A missing file is a
+ * NextcloudError with status 404, so the shared error handler renders the calm
+ * "we couldn't find that" page.
+ *
+ * @param {ReturnType<import('./client.js').createClient>} client
+ * @param {string} relPath normalized relative path; '' (the root) is rejected
+ * @returns {Promise<{name:string,path:string,isFolder:boolean,fileId:number|null,
+ *                    etag:string|null,lastModified:Date|null,
+ *                    contentType:string|null,size:number|null}>}
+ */
+export async function statFile(client, relPath) {
+  const normalized = normalizeRelPath(relPath);
+  if (normalized === '') {
+    throw new NextcloudError('The files root is not a file.', {
+      status: 404,
+      method: 'PROPFIND',
+      url: client.filesRoot,
+    });
+  }
+
+  const { self, url } = await doPropfind(client, normalized, {
+    depth: '0',
+    notFoundMessage: `Not found: ${normalized}`,
+  });
+
+  if (!self) {
+    // A 207 that doesn't describe what we asked about: treat as missing rather
+    // than guessing from whatever else the server volunteered.
+    throw new NextcloudError(`No metadata returned for ${normalized}`, {
+      status: 404,
+      method: 'PROPFIND',
+      url,
+    });
+  }
+
+  return self;
 }
 
 /**

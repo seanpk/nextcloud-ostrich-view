@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -28,6 +30,11 @@ export default async function globalSetup() {
   const mock = createMockNextcloud();
   const { url: mockUrl } = await mock.start();
 
+  // Runtime state (the preview cache; from M4, state.json) goes to a throwaway
+  // directory: the run starts from a cold cache every time, and nothing lands
+  // in the working tree.
+  const dataDir = mkdtempSync(join(tmpdir(), 'ostrich-e2e-'));
+
   const config = loadConfig({
     NC_BASE_URL: mockUrl,
     NC_USER: TEST_USER,
@@ -39,6 +46,7 @@ export default async function globalSetup() {
     // tests speak plain HTTP to 127.0.0.1.
     NODE_ENV: 'test',
     HOST: '127.0.0.1',
+    DATA_DIR: dataDir,
   });
 
   const app = await buildApp({ config, logger: false });
@@ -52,5 +60,6 @@ export default async function globalSetup() {
   return async () => {
     await app.close();
     await mock.stop();
+    rmSync(dataDir, { recursive: true, force: true });
   };
 }

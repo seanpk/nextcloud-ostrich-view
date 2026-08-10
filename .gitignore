@@ -2,6 +2,8 @@ node_modules/
 .env
 config/viewers.json
 data/
+# Built by scripts/copy-pdfjs.js (npm `prepare`), never edited by hand.
+public/pdfjs/
 test-results/
 playwright-report/
 playwright/.cache/

@@ -312,6 +312,61 @@ a.tile:focus-visible {
   margin: 0;
 }
 
+/* ---------- Inline viewer (/view/*) ---------- */
+
+.viewer {
+  margin: 0;
+}
+
+.viewer__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+/*
+ * The PDF frame takes whatever height is left below the top bar and title.
+ * `dvh` keeps it honest on phones, where the browser chrome comes and goes;
+ * the min-height stops it collapsing to nothing in a short landscape window.
+ */
+.viewer--pdf {
+  height: calc(100dvh - var(--topbar-h) - 9rem);
+  min-height: 20rem;
+}
+
+.viewer__pdf {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.viewer--plain {
+  background: var(--card);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.viewer__icon {
+  width: 4.5rem;
+  height: 4.5rem;
+  margin: 0 auto 1rem;
+  display: block;
+}
+
+.viewer__hint {
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+  margin: 0 0 1.5rem;
+}
+
 /* ---------- Login ---------- */
 
 .login__logo {

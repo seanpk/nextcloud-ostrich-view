@@ -1,49 +1,24 @@
 import { encodePath } from './paths.js';
+import { kindOf, rendersInline } from './filetypes.js';
+import { isValidEtag, isValidFileId } from '../nextcloud/previews.js';
 
 /**
  * View-model for a "big button" tile.
  *
- * M1 renders a name plus a flat SVG icon. M2 adds thumbnails: the seam is
- * `previewUrl` below -- fill it in with `/preview/<fileId>` when the file has a
- * fileId and a previewable content type, and the template will prefer it over
- * `icon` with no other changes.
+ * M2 filled in the two seams M1 left here:
+ *  - `previewUrl` points at `/preview/<fileId>?v=<etag>`, so the template swaps
+ *    the flat icon for a real thumbnail;
+ *  - `href` points file tiles at `/view/<path>` for the files we can actually
+ *    show inline -- which is `rendersInline`'s decision, taken from the same
+ *    table `/content/*` reads to choose a Content-Type, so a tile can never
+ *    link to something the proxy will defang into a download.
+ *
+ * Only kinds Nextcloud reliably renders a thumbnail for get a `previewUrl`.
+ * PDFs deliberately do not: Nextcloud ships with `OC\Preview\PDF` disabled, so
+ * every PDF tile would be a round trip that 404s and falls back to the icon
+ * anyway. If that provider is ever enabled, add 'pdf' to PREVIEWABLE_KINDS and
+ * nothing else needs to change.
  */
-
-const IMAGE_TYPES = /^image\//;
-const PDF_TYPE = /^application\/pdf$/;
-
-const EXTENSION_KINDS = new Map([
-  ['png', 'image'],
-  ['jpg', 'image'],
-  ['jpeg', 'image'],
-  ['gif', 'image'],
-  ['webp', 'image'],
-  ['heic', 'image'],
-  ['pdf', 'pdf'],
-  ['doc', 'document'],
-  ['docx', 'document'],
-  ['odt', 'document'],
-  ['txt', 'document'],
-  ['md', 'document'],
-]);
-
-function extensionOf(name) {
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0 || dot === name.length - 1) return '';
-  return name.slice(dot + 1).toLowerCase();
-}
-
-/**
- * Coarse kind used to pick an icon (and, in M2, to decide previewability).
- * @returns {'folder'|'image'|'pdf'|'document'|'file'}
- */
-export function kindOf(entry) {
-  if (entry.isFolder) return 'folder';
-  const type = entry.contentType ?? '';
-  if (IMAGE_TYPES.test(type)) return 'image';
-  if (PDF_TYPE.test(type)) return 'pdf';
-  return EXTENSION_KINDS.get(extensionOf(entry.name ?? '')) ?? 'file';
-}
 
 const ICONS = {
   folder: '/public/icons/folder.svg',
@@ -67,11 +42,41 @@ function formatSize(bytes) {
   return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
 
+/** Kinds worth asking Nextcloud for a thumbnail of. */
+const PREVIEWABLE_KINDS = new Set(['image']);
+
+/**
+ * `/preview/<fileId>?v=<etag>&k=<kind>`, or null when we can't build a usable
+ * one. The etag is what makes the URL change when the file does, so the
+ * browser may cache it for a day; `k` only picks which bundled SVG the route
+ * redirects to when Nextcloud has no thumbnail to give.
+ *
+ * Both ids are checked against the preview route's own validators rather than
+ * assumed well-formed: emitting a URL the route would reject with a 400 would
+ * turn one odd etag into a broken image.
+ */
+function previewUrlFor(entry, kind) {
+  if (entry.isFolder || !PREVIEWABLE_KINDS.has(kind)) return null;
+  const fileId = entry.fileId === null || entry.fileId === undefined ? '' : String(entry.fileId);
+  const etag = entry.etag ?? '';
+  if (!isValidFileId(fileId) || !isValidEtag(etag)) return null;
+  return `/preview/${fileId}?v=${etag}&k=${kind}`;
+}
+
 /**
  * Turn a PROPFIND entry into a tile.
  *
- * M1: folders link into `/files/...`; files have no destination yet, so they
- * render as non-interactive tiles. M2 points `href` at `/view/<path>`.
+ * Folders link into `/files/...`; images and PDFs link into `/view/...`.
+ * Anything else keeps `href: null` and renders as a plain label -- M1's visual
+ * language for "this is here, but there is nothing to tap". (`/view/` still
+ * answers for those paths with a calm "we can't show this one" page if someone
+ * arrives by URL.)
+ *
+ * M4 note: this function is fed straight from `parseMultistatus` entries, and
+ * "new since you last looked" tiles want a muted containing-folder label. Set
+ * `folderLabel` on the returned object (the tile macro already renders it in
+ * place of `sizeLabel`); everything else -- previewUrl included -- comes out of
+ * here unchanged as long as the entry carries `fileId` and `etag`.
  *
  * @param {object} entry from `parsePropfind`
  * @returns {{name:string, path:string, isFolder:boolean, kind:string,
@@ -82,16 +87,18 @@ export function toTile(entry) {
   const kind = kindOf(entry);
   const encoded = encodePath(entry.path);
 
+  let href = null;
+  if (entry.isFolder) href = `/files/${encoded}`;
+  else if (rendersInline(entry)) href = `/view/${encoded}`;
+
   return {
     name: entry.name,
     path: entry.path,
     isFolder: entry.isFolder,
     kind,
-    // M2 seam: files get `/view/${encoded}` once the inline viewer exists.
-    href: entry.isFolder ? `/files/${encoded}` : null,
+    href,
     icon: ICONS[kind] ?? ICONS.file,
-    // M2 seam: `/preview/${entry.fileId}` for previewable kinds.
-    previewUrl: null,
+    previewUrl: previewUrlFor(entry, kind),
     sizeLabel: entry.isFolder ? null : formatSize(entry.size),
     fileId: entry.fileId,
   };

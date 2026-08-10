@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -10,11 +11,13 @@ import nunjucks from 'nunjucks';
 
 import { loadConfig } from './config.js';
 import { createClient } from './nextcloud/client.js';
+import { createPreviewCache } from './nextcloud/previews.js';
 import { InvalidPathError } from './lib/paths.js';
 import { NextcloudError } from './nextcloud/client.js';
 import registerAuthRoutes from './routes/auth.js';
 import registerHomeRoutes from './routes/home.js';
 import registerFileRoutes from './routes/files.js';
+import registerMediaRoutes from './routes/media.js';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const VIEWS_DIR = join(HERE, 'views');
@@ -24,9 +27,33 @@ const PUBLIC_DIR = join(HERE, '..', 'public');
 const PUBLIC_ROUTES = new Set(['/login', '/healthz']);
 const PUBLIC_PREFIXES = ['/public/'];
 
+/**
+ * One CSP for the whole app, including the pdf.js page under /public/pdfjs/.
+ *
+ * M2 loosened M1's policy in exactly two places, both for pdf.js, and nowhere
+ * else. Everything is still same-origin; there is no 'unsafe-inline', no
+ * 'unsafe-eval', and no remote origin anywhere in here.
+ *
+ *  - `'wasm-unsafe-eval'` in script-src. pdf.js decodes JBIG2 and JPEG 2000
+ *    images -- the formats scanned lecture notes usually arrive in -- with
+ *    WebAssembly, and *any* CSP that constrains script-src blocks WebAssembly
+ *    compilation without this token (verified: with `script-src 'self'` alone,
+ *    Chrome refuses `WebAssembly.compile` and names 'unsafe-eval'). It permits
+ *    only WASM compilation: it does not enable eval() or new Function(), which
+ *    is why the far broader `'unsafe-eval'` is not here. Our viewer also passes
+ *    `isEvalSupported: false`, so pdf.js never reaches for eval to evaluate a
+ *    PostScript function.
+ *  - `data:` in font-src. pdf.js prefers the FontFace API (no CSP surface, and
+ *    what Chrome takes), but falls back to an `@font-face` rule with a
+ *    `url(data:font/opentype;...)` source on browsers where that path isn't
+ *    available. A data: font is inert, and a phone that silently renders a PDF
+ *    with no glyphs is the one failure this app cannot afford.
+ */
 const CSP = [
   "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "img-src 'self' data:",
+  "font-src 'self' data:",
   "style-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -74,7 +101,17 @@ export async function buildApp(options = {}) {
   );
 
   app.decorate('appConfig', config);
-  app.decorate('nextcloud', createClient(config.nextcloud));
+  const nextcloud = createClient(config.nextcloud);
+  app.decorate('nextcloud', nextcloud);
+
+  // Runtime state directory. Created here rather than at first write so a
+  // container with a broken volume mount fails at boot, loudly, instead of on
+  // the first thumbnail request.
+  mkdirSync(config.previewCacheDir, { recursive: true });
+  app.decorate(
+    'previewCache',
+    createPreviewCache({ dir: config.previewCacheDir, client: nextcloud, log: app.log })
+  );
 
   await app.register(fastifySecureSession, {
     key: config.sessionKey,
@@ -219,6 +256,7 @@ export async function buildApp(options = {}) {
   await app.register(registerAuthRoutes);
   await app.register(registerHomeRoutes);
   await app.register(registerFileRoutes);
+  await app.register(registerMediaRoutes);
 
   return app;
 }

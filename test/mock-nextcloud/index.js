@@ -1,6 +1,13 @@
 import { createServer } from 'node:http';
 
-import { DEFAULT_TREE, FIXED_LAST_MODIFIED, fakeEtag, fakeFileId, resolveNode } from './tree.js';
+import {
+  DEFAULT_TREE,
+  FIXED_LAST_MODIFIED,
+  fakeEtag,
+  fakeFileId,
+  indexByFileId,
+  resolveNode,
+} from './tree.js';
 
 /**
  * Mock Nextcloud.
@@ -11,10 +18,15 @@ import { DEFAULT_TREE, FIXED_LAST_MODIFIED, fakeEtag, fakeFileId, resolveNode } 
  * for properties the server doesn't have), so the parser is exercised against
  * realistic input rather than something tidied up for our convenience.
  *
+ * M2 added two more things it has to be honest about:
+ *  - `GET` on a DAV path serves the node's real bytes, and implements a single
+ *    byte range, because pdf.js will not open a large document without one;
+ *  - `/index.php/core/preview` behaves like a default Nextcloud: it renders
+ *    thumbnails for images and answers 404 for everything else (the PDF
+ *    preview provider is off by default), which is exactly the case the icon
+ *    fallback exists for.
+ *
  * EXTENSION POINTS
- *  - M2: add `GET` on the same DAV paths (serve `node.bytes`) and
- *    `/index.php/core/preview?fileId=...`; `handleRequest` already routes by
- *    method, so add a branch.
  *  - M3: add `/remote.php/dav/calendars/<user>/` PROPFIND plus `REPORT`.
  *  - M4: add the `SEARCH` verb on the files root.
  */
@@ -139,7 +151,8 @@ export function createMockNextcloud(options = {}) {
   });
 
   function handle(req, res) {
-    const pathname = decodeURIComponent(req.url.split('?')[0]);
+    const [rawPath, rawQuery = ''] = req.url.split('?');
+    const pathname = decodeURIComponent(rawPath);
 
     if (!checkAuth(req, user, password)) {
       res.writeHead(401, {
@@ -155,9 +168,127 @@ export function createMockNextcloud(options = {}) {
       return;
     }
 
-    // M2 adds GET here (file bytes + /index.php/core/preview).
-    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'PROPFIND' });
+    if (req.method === 'GET' && pathname === '/index.php/core/preview') {
+      handlePreview(req, res, new URLSearchParams(rawQuery));
+      return;
+    }
+
+    if (req.method === 'GET') {
+      handleGet(req, res, pathname);
+      return;
+    }
+
+    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, PROPFIND' });
     res.end(`Method ${req.method} not implemented by the mock`);
+  }
+
+  /**
+   * `Range: bytes=a-b`. One range only -- which is all pdf.js ever asks for,
+   * and all real Nextcloud reliably answers.
+   * @returns {{start: number, end: number}|null|'unsatisfiable'}
+   */
+  function parseRange(header, length) {
+    if (typeof header !== 'string') return null;
+    const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+    if (!match) return null;
+
+    const [, rawStart, rawEnd] = match;
+    if (rawStart === '' && rawEnd === '') return null;
+
+    let start;
+    let end;
+    if (rawStart === '') {
+      // Suffix range: the last N bytes.
+      const suffix = Number(rawEnd);
+      if (suffix === 0) return 'unsatisfiable';
+      start = Math.max(0, length - suffix);
+      end = length - 1;
+    } else {
+      start = Number(rawStart);
+      end = rawEnd === '' ? length - 1 : Math.min(Number(rawEnd), length - 1);
+    }
+    if (start > end || start >= length) return 'unsatisfiable';
+    return { start, end };
+  }
+
+  function handleGet(req, res, pathname) {
+    const normalized = pathname.replace(/\/+$/, '');
+    const rootNormalized = davRoot.replace(/\/+$/, '');
+
+    if (!normalized.startsWith(`${rootNormalized}/`)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+
+    const relPath = normalized.slice(rootNormalized.length + 1);
+    const node = resolveNode(tree, relPath);
+    if (!node || node.type === 'folder' || !node.bytes) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+
+    const bytes = node.bytes;
+    const headers = {
+      'Content-Type': node.contentType ?? 'application/octet-stream',
+      'Accept-Ranges': 'bytes',
+      ETag: `"${fakeEtag(relPath)}"`,
+      'Last-Modified': FIXED_LAST_MODIFIED,
+    };
+
+    const range = parseRange(req.headers.range, bytes.length);
+    if (range === 'unsatisfiable') {
+      res.writeHead(416, { ...headers, 'Content-Range': `bytes */${bytes.length}` });
+      res.end();
+      return;
+    }
+    if (range) {
+      const slice = bytes.subarray(range.start, range.end + 1);
+      res.writeHead(206, {
+        ...headers,
+        'Content-Range': `bytes ${range.start}-${range.end}/${bytes.length}`,
+        'Content-Length': String(slice.length),
+      });
+      res.end(slice);
+      return;
+    }
+
+    res.writeHead(200, { ...headers, 'Content-Length': String(bytes.length) });
+    res.end(bytes);
+  }
+
+  /**
+   * Stand-in for `/index.php/core/preview`. Images get a thumbnail; everything
+   * else 404s, the way a stock Nextcloud does for PDFs.
+   */
+  function handlePreview(req, res, params) {
+    const fileId = Number(params.get('fileId'));
+    if (!Number.isInteger(fileId)) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Bad fileId');
+      return;
+    }
+
+    const found = indexByFileId(tree).get(fileId);
+    if (!found || found.node.type === 'folder' || !found.node.bytes) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('No preview');
+      return;
+    }
+    if (!String(found.node.contentType ?? '').startsWith('image/')) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('No preview provider');
+      return;
+    }
+
+    // The real endpoint scales the image; the app only cares that it gets
+    // image bytes back, so hand over the original.
+    res.writeHead(200, {
+      'Content-Type': found.node.contentType,
+      'Content-Length': String(found.node.bytes.length),
+    });
+    res.end(found.node.bytes);
   }
 
   function handlePropfind(req, res, pathname) {

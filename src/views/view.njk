@@ -1,0 +1,39 @@
+{% extends "layout.njk" %}
+
+{#
+  The inline viewer. Three shapes, one page:
+    image  -- the picture itself, full width, nothing else on screen
+    pdf    -- our toolbar-free pdf.js page in an iframe (see scripts/pdfjs-viewer)
+    other  -- a calm explanation; never a download prompt
+
+  The layout's fixed Back button is what she uses to leave, so there is no
+  in-page navigation competing with it.
+#}
+
+{% block heading %}{{ name }}{% endblock %}
+
+{% block content %}
+  {% if mode == 'image' %}
+    <figure class="viewer viewer--image">
+      <img class="viewer__image" src="{{ contentUrl }}" alt="{{ name }}" />
+    </figure>
+  {% elif mode == 'pdf' %}
+    <div class="viewer viewer--pdf">
+      <iframe
+        class="viewer__pdf"
+        src="{{ pdfViewerUrl }}"
+        title="{{ name }}"
+        referrerpolicy="same-origin"
+      ></iframe>
+    </div>
+  {% else %}
+    <div class="viewer viewer--plain">
+      <img class="viewer__icon" src="{{ icon }}" alt="" aria-hidden="true" />
+      <p class="lede">We can’t show this one on screen.</p>
+      <p class="viewer__hint">
+        Photos and PDFs open right here. {{ name }} is a different kind of file.
+      </p>
+      <p><a class="btn btn--primary" href="{{ backHref }}">Back to the folder</a></p>
+    </div>
+  {% endif %}
+{% endblock %}

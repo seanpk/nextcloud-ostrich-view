@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /**
  * Configuration loading. Fails fast and loudly: a half-configured deployment
@@ -105,6 +105,8 @@ export function loadViewers(filePath) {
  * @returns {{
  *   nextcloud: { baseUrl: string, user: string, appPassword: string },
  *   sessionKey: Buffer,
+ *   dataDir: string,
+ *   previewCacheDir: string,
  *   port: number,
  *   host: string,
  *   isProduction: boolean,
@@ -143,9 +145,16 @@ export function loadConfig(env = process.env) {
 
   const viewersFile = resolve(env.VIEWERS_FILE ?? 'config/viewers.json');
 
+  // Everything the app writes at runtime lives under one directory, so the
+  // Docker compose file (M5) has exactly one volume to mount. buildApp creates
+  // it -- and preview-cache/ inside it -- at boot.
+  const dataDir = resolve(env.DATA_DIR ?? 'data');
+
   return {
     nextcloud: { baseUrl, user, appPassword },
     sessionKey: Buffer.from(sessionSecret, 'hex'),
+    dataDir,
+    previewCacheDir: join(dataDir, 'preview-cache'),
     port,
     host: env.HOST ?? '0.0.0.0',
     isProduction: env.NODE_ENV === 'production',

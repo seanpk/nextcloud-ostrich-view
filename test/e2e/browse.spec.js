@@ -13,7 +13,8 @@ test.describe('Browsing folders', () => {
 
     await expect(page.getByRole('link', { name: 'Lectures' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Lab Reports' })).toBeVisible();
-    await expect(page.locator('.tile--static', { hasText: 'syllabus.pdf' })).toBeVisible();
+    // M2: a PDF is something you can open, so its tile is a link now.
+    await expect(page.getByRole('link', { name: /syllabus\.pdf/ })).toBeVisible();
   });
 
   test('the Back button returns to where you came from', async ({ page }) => {
@@ -70,10 +71,10 @@ test.describe('Browsing folders', () => {
     await page.getByRole('link', { name: 'Café Notes' }).click();
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Café Notes');
-    await expect(page.locator('.tile--static', { hasText: 'résumé draft.pdf' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /résumé draft\.pdf/ })).toBeVisible();
   });
 
-  test('files show an icon placeholder and their name', async ({ page }) => {
+  test('PDFs show an icon, not a thumbnail (Nextcloud renders no PDF previews)', async ({ page }) => {
     await page.getByRole('link', { name: 'Biology 101' }).click();
 
     const tile = page.locator('.tiles__item', { hasText: 'syllabus.pdf' });
@@ -82,6 +83,14 @@ test.describe('Browsing folders', () => {
     await expect(icon).toHaveAttribute('src', '/public/icons/pdf.svg');
     // Decorative: the name next to it is what gets read out.
     await expect(icon).toHaveAttribute('alt', '');
+    await expect(tile.locator('.tile__preview')).toHaveCount(0);
+  });
+
+  test('a file we cannot open inline stays a plain label, not a button', async ({ page }) => {
+    const tile = page.locator('.tiles__item', { hasText: 'welcome.txt' });
+
+    await expect(tile.locator('.tile--static')).toBeVisible();
+    await expect(tile.locator('a')).toHaveCount(0);
   });
 
   test('a folder that does not exist gives a calm message, not a stack trace', async ({ page }) => {

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Document</title>
+    <!--
+      Copied into public/pdfjs/web/ by scripts/copy-pdfjs.js, next to
+      pdf_viewer.mjs / pdf_viewer.css from the pdfjs-dist package.
+
+      Deliberately toolbar-free: no download, print, open-file or secondary
+      menu exists to hide. The page is only ever loaded inside our /view/
+      iframe, and it will only open a URL under /content/ on our own origin.
+    -->
+    <link rel="stylesheet" href="pdf_viewer.css" />
+    <link rel="stylesheet" href="viewer.css" />
+    <!--
+      viewer.mjs imports these two in sequence (pdf_viewer.mjs reads the global
+      pdf.min.mjs sets, so it cannot import them in parallel itself). Preloading
+      turns that serial waterfall into one round trip, which on a phone is most
+      of the wait before the first page appears.
+    -->
+    <link rel="modulepreload" href="../build/pdf.min.mjs" />
+    <link rel="modulepreload" href="pdf_viewer.mjs" />
+  </head>
+  <body>
+    <div id="viewerContainer">
+      <div id="viewer" class="pdfViewer"></div>
+    </div>
+    <p id="status" class="status" role="status">Opening the document…</p>
+    <script type="module" src="viewer.mjs"></script>
+  </body>
+</html>

@@ -53,6 +53,14 @@ export function createClient({ baseUrl, user, appPassword, fetchImpl = globalThi
           Authorization: authorization,
           'User-Agent': 'ostrich-view/1.0 (+read-only)',
           ...options.headers,
+          // Last, so no caller can undo it. undici asks for gzip by default
+          // and decompresses transparently, but leaves Content-Length
+          // describing the *compressed* body -- and /content/* relays that
+          // header while streaming the decoded bytes. Asking for identity
+          // keeps the two in agreement at the one place every request passes
+          // through. The bodies we proxy are photos and PDFs, already
+          // compressed; the XML is small and local.
+          'Accept-Encoding': 'identity',
         },
         body: options.body,
         signal: options.signal,

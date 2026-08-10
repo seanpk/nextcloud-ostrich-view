@@ -12,7 +12,9 @@
     "dev": "NODE_ENV=development node --watch --env-file=.env src/index.js",
     "test": "node --test \"test/unit/**/*.test.js\"",
     "test:e2e": "playwright test",
-    "hash": "node scripts/hash-passphrase.js"
+    "hash": "node scripts/hash-passphrase.js",
+    "pdfjs": "node scripts/copy-pdfjs.js",
+    "prepare": "node scripts/copy-pdfjs.js"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.2.2",
@@ -22,7 +24,8 @@
     "bcryptjs": "^2.4.3",
     "fast-xml-parser": "^5.10.1",
     "fastify": "^5.2.1",
-    "nunjucks": "^3.2.4"
+    "nunjucks": "^3.2.4",
+    "pdfjs-dist": "^6.2.108"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0"
