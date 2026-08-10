@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 
 import { NextcloudError } from './client.js';
+import { asArray, collectProps, decodeHref, stripTrailingSlash } from './dav-util.js';
 import { encodePath, normalizeRelPath } from '../lib/paths.js';
 
 /**
@@ -31,41 +32,6 @@ const parser = new XMLParser({
   parseTagValue: false,
   trimValues: true,
 });
-
-function asArray(value) {
-  if (value === undefined || value === null) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-/**
- * Merge every `propstat` block that carries a 2xx status. Nextcloud splits
- * found and not-found properties into separate blocks, and the not-found one
- * would otherwise clobber real values with empty strings.
- */
-function collectProps(response) {
-  const merged = {};
-  for (const propstat of asArray(response.propstat)) {
-    const status = String(propstat?.status ?? '');
-    if (!/\s2\d\d\s/.test(` ${status} `) && !/HTTP\/1\.[01]\s+2\d\d/.test(status)) continue;
-    Object.assign(merged, propstat.prop ?? {});
-  }
-  return merged;
-}
-
-function decodeHref(href) {
-  const raw = String(href ?? '');
-  // An href may be a full URL (some servers) or an absolute path (Nextcloud).
-  const pathOnly = /^https?:\/\//i.test(raw) ? new URL(raw).pathname : raw.split('?')[0];
-  try {
-    return decodeURIComponent(pathOnly);
-  } catch {
-    return pathOnly;
-  }
-}
-
-function stripTrailingSlash(value) {
-  return value.replace(/\/+$/, '');
-}
 
 function cleanEtag(value) {
   if (value === undefined || value === null || value === '') return null;

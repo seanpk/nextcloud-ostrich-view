@@ -208,10 +208,18 @@ test('cache: the content type follows the bytes, not the file extension', async 
   });
 });
 
+/**
+ * A clock a minute ahead of the wall clock. With `pruneGraceMs: 0` it puts the
+ * prune cutoff safely past every file the test just wrote, so "is the older
+ * variant gone" is a question about the code and not about how many
+ * milliseconds the test took.
+ */
+const clockAhead = () => Date.now() + 60_000;
+
 test('cache: a new etag re-fetches and prunes the previous version', async () => {
   await withTempDir(async (dir) => {
     const client = stubClient(() => new Response(PNG, { status: 200 }));
-    const cache = createPreviewCache({ dir, client, pruneGraceMs: 0 });
+    const cache = createPreviewCache({ dir, client, pruneGraceMs: 0, now: clockAhead });
 
     await cache.get({ fileId: '42', etag: 'aaa111' });
     await cache.get({ fileId: '42', etag: 'bbb222' });
@@ -242,12 +250,26 @@ test('cache: pruning leaves other files alone', async () => {
   await withTempDir(async (dir) => {
     await writeFile(join(dir, '77-zzz-512.png'), PNG);
     const client = stubClient(() => new Response(PNG, { status: 200 }));
-    const cache = createPreviewCache({ dir, client, pruneGraceMs: 0 });
+    const cache = createPreviewCache({ dir, client, pruneGraceMs: 0, now: clockAhead });
 
     await cache.get({ fileId: '42', etag: 'aaa111' });
     await cache.get({ fileId: '42', etag: 'bbb222' });
 
     assert.deepEqual((await readdir(dir)).sort(), ['42-bbb222-512.png', '77-zzz-512.png']);
+  });
+});
+
+test('cache: a variant that has gone cold is pruned under the real grace window', async () => {
+  await withTempDir(async (dir) => {
+    // Twenty minutes old, so it is past the ten-minute grace without the test
+    // touching the clock at all: nobody's page has rendered from it in ages.
+    await agedFile(dir, '42-aaa111-512.png', 20 * 60 * 1000);
+    const client = stubClient(() => new Response(PNG, { status: 200 }));
+    const cache = createPreviewCache({ dir, client });
+
+    await cache.get({ fileId: '42', etag: 'bbb222' });
+
+    assert.deepEqual(await readdir(dir), ['42-bbb222-512.png']);
   });
 });
 

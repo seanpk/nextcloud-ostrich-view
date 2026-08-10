@@ -8,6 +8,7 @@ import {
   indexByFileId,
   resolveNode,
 } from './tree.js';
+import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
 
 /**
  * Mock Nextcloud.
@@ -27,7 +28,8 @@ import {
  *    fallback exists for.
  *
  * EXTENSION POINTS
- *  - M3: add `/remote.php/dav/calendars/<user>/` PROPFIND plus `REPORT`.
+ *  - M3 (done): `/remote.php/dav/calendars/<user>/` PROPFIND and `REPORT` live
+ *    in calendars.js and are dispatched from `handle`.
  *  - M4: add the `SEARCH` verb on the files root.
  */
 
@@ -128,7 +130,7 @@ ${parts.join('\n')}
 }
 
 /**
- * @param {{ tree?: object, user?: string, password?: string }} [options]
+ * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string }} [options]
  * @returns {{ start: () => Promise<{url: string, port: number}>,
  *             stop: () => Promise<void>,
  *             url: () => string,
@@ -137,6 +139,7 @@ ${parts.join('\n')}
  */
 export function createMockNextcloud(options = {}) {
   let tree = options.tree ?? DEFAULT_TREE;
+  const calendars = options.calendars ?? CALENDAR_FIXTURES;
   const user = options.user ?? TEST_USER;
   const password = options.password ?? TEST_APP_PASSWORD;
   const davRoot = davRootFor(user);
@@ -163,6 +166,13 @@ export function createMockNextcloud(options = {}) {
       return;
     }
 
+    // M3: the calendar home answers PROPFIND and REPORT (see calendars.js).
+    const calendarRoot = `/remote.php/dav/calendars/${user}`;
+    if (pathname === calendarRoot || pathname.startsWith(`${calendarRoot}/`)) {
+      handleCalendarRequest(req, res, { pathname, hrefRoot: calendarRoot, calendars });
+      return;
+    }
+
     if (req.method === 'PROPFIND') {
       handlePropfind(req, res, pathname);
       return;
@@ -178,7 +188,7 @@ export function createMockNextcloud(options = {}) {
       return;
     }
 
-    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, PROPFIND' });
+    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, PROPFIND, REPORT' });
     res.end(`Method ${req.method} not implemented by the mock`);
   }
 

@@ -27,7 +27,7 @@ export default async function registerHomeRoutes(app) {
       newSince: [],
       lastVisitedAt: null,
       // M3 seam.
-      showToggle: false,
+      showToggle: true,
       section: 'files',
       showBack: false,
       breadcrumbs: [],

@@ -310,7 +310,8 @@ export default async function registerMediaRoutes(app) {
       icon: ICONS[kind] ?? ICONS.file,
       showBack: true,
       backHref,
-      showToggle: false,
+      // Present on every page, viewer included; see the folder route.
+      showToggle: true,
       section: 'files',
       breadcrumbs: [],
     });

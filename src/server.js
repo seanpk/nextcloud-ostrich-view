@@ -18,6 +18,7 @@ import registerAuthRoutes from './routes/auth.js';
 import registerHomeRoutes from './routes/home.js';
 import registerFileRoutes from './routes/files.js';
 import registerMediaRoutes from './routes/media.js';
+import registerTaskRoutes from './routes/tasks.js';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const VIEWS_DIR = join(HERE, 'views');
@@ -234,6 +235,13 @@ export async function buildApp(options = {}) {
       });
     }
 
+    // A 404 from a task route must not talk about folders, and must send her
+    // back to the task lists rather than to the file home.
+    const inTasks = request.url === '/tasks' || request.url.startsWith('/tasks/');
+    const notFoundMessage = inTasks
+      ? "We couldn't find that task list. It may have been unshared."
+      : "We couldn't find that folder. It may have been moved or unshared.";
+
     reply.code(status);
     return reply.view('error', {
       viewer: request.viewer,
@@ -241,9 +249,9 @@ export async function buildApp(options = {}) {
       // Never surface upstream detail to the browser; the log has it.
       message:
         status === 404
-          ? "We couldn't find that folder. It may have been moved or unshared."
+          ? notFoundMessage
           : "Something went wrong on our end. Please try again in a moment.",
-      backHref: '/',
+      backHref: inTasks ? '/tasks' : '/',
     });
   });
 
@@ -257,6 +265,7 @@ export async function buildApp(options = {}) {
   await app.register(registerHomeRoutes);
   await app.register(registerFileRoutes);
   await app.register(registerMediaRoutes);
+  await app.register(registerTaskRoutes);
 
   return app;
 }

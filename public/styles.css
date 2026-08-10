@@ -507,3 +507,164 @@ a.tile:focus-visible {
     transition: none !important;
   }
 }
+
+/* =========================================================================
+   M3 -- Tasks
+   Everything below belongs to the Tasks view. Kept in one block at the end of
+   the file so it can be read (or moved) as a unit.
+   ========================================================================= */
+
+/*
+ * The toggle and the brand both want the right-hand side of the top bar, and on
+ * a 360px phone there is room for exactly one of them. The toggle is the thing
+ * she taps, so the brand steps aside wherever the toggle is shown.
+ */
+.topbar__inner:has(.toggle) .topbar__brand {
+  display: none;
+}
+
+/* ---------- Task-list tiles ---------- */
+
+.tile--tasklist .tile__thumb {
+  /* The colour block stands in for a thumbnail on these tiles. */
+  width: 2rem;
+  height: 3rem;
+}
+
+.tasklist__mark {
+  display: block;
+  width: 0.9rem;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--tile-accent, var(--accent));
+}
+
+/*
+ * Calendar colours, bucketed by hue in lib/tasks.js. A class per bucket rather
+ * than an inline style: the CSP is `style-src 'self'` with no 'unsafe-inline',
+ * so a `style` attribute would simply be dropped by the browser.
+ */
+.tile--accent-red { --tile-accent: #b3352f; }
+.tile--accent-amber { --tile-accent: #a8690d; }
+.tile--accent-green { --tile-accent: #2f7a3f; }
+.tile--accent-teal { --tile-accent: #14707c; }
+.tile--accent-blue { --tile-accent: #1c4f8b; }
+.tile--accent-purple { --tile-accent: #6b3f9e; }
+.tile--accent-slate { --tile-accent: #4a5560; }
+
+/* ---------- Task lists ---------- */
+
+.tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.task__card {
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-left: 6px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+}
+
+.task__title {
+  /* The task itself is the headline of this page; nothing may outshout it. */
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.task__due {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent-dark);
+  margin: 0.35rem 0 0;
+}
+
+.task__due--late {
+  color: var(--danger);
+}
+
+.task__note {
+  /* The owner's line breaks survive; long words still wrap instead of overflowing. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  margin: 0.5rem 0 0;
+}
+
+.task__flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+}
+
+.task__flag {
+  display: inline-block;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-tint);
+  border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+}
+
+.task__flag--quiet {
+  color: var(--ink-soft);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+
+/* Subtasks: indented, with a rule tying them to the parent above. */
+.tasks--sub {
+  margin: 0.6rem 0 0 1.1rem;
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--line);
+}
+
+.task--sub .task__title {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.task--sub .task__card {
+  border-left-width: 4px;
+}
+
+/* ---------- Done section: present, but visibly finished ---------- */
+
+.section--done .section__title {
+  color: var(--ink-faint);
+}
+
+.task--done .task__card {
+  background: transparent;
+  border-color: var(--line);
+  border-left-color: var(--ink-faint);
+  padding: 0.7rem 1rem;
+}
+
+.task--done .task__title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.task__done-at {
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+  margin: 0.2rem 0 0;
+}
+
+@media (min-width: 40rem) {
+  .task__title {
+    font-size: 1.45rem;
+  }
+}

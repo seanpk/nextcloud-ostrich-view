@@ -28,8 +28,9 @@
         <span class="topbar__brand">Ostrich View</span>
 
         {#
-          M3 seam: the Files / Tasks toggle drops in here. Set showToggle=true
-          and section='files'|'tasks' from the route.
+          Every page inside the app sets showToggle=true and
+          section='files'|'tasks': switching sections must never require backing
+          out to the home screen first. Login is the one page without it.
         #}
         {% if showToggle %}
           <nav class="toggle" aria-label="Sections">

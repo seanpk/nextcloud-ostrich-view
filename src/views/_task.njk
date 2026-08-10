@@ -1,0 +1,60 @@
+{#
+  One task, with its subtasks nested underneath it.
+
+  The macro calls itself for children; nesting is bounded by the RELATED-TO
+  chain, which caldav.js has already de-cycled.
+
+  Unfinished tasks show everything Mom would want (what, when, the note the owner
+  wrote). Finished ones deliberately show less -- they are there so she can see
+  progress, not so she can re-read them.
+#}
+
+{% macro task_item(task) %}
+  <li class="task {{ 'task--done' if task.isCompleted }} {{ 'task--sub' if task.depth > 0 }}">
+    <div class="task__card">
+      <p class="task__title">{{ task.summary }}</p>
+
+      {% if task.dueLabel %}
+        <p class="task__due {{ 'task__due--late' if task.overdue }}">{{ task.dueLabel }}</p>
+      {% endif %}
+
+      {% if task.doneLabel %}
+        <p class="task__done-at">{{ task.doneLabel }}</p>
+      {% endif %}
+
+      {% if not task.isCompleted %}
+        {% if task.description %}
+          {# The owner writes checklists in here; the line breaks are the content. #}
+          <p class="task__note">{{ task.description }}</p>
+        {% endif %}
+
+        {% if task.isImportant or task.progressLabel %}
+          <p class="task__flags">
+            {% if task.isImportant %}<span class="task__flag">Important</span>{% endif %}
+            {% if task.progressLabel %}<span class="task__flag task__flag--quiet">{{ task.progressLabel }}</span>{% endif %}
+          </p>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if task.children and task.children.length %}
+      <ul class="tasks tasks--sub">
+        {% for child in task.children %}
+          {{ task_item(child) }}
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </li>
+{% endmacro %}
+
+{% macro task_list(tasks, empty_message, extra_class) %}
+  {% if tasks and tasks.length %}
+    <ul class="tasks {{ extra_class }}">
+      {% for task in tasks %}
+        {{ task_item(task) }}
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty">{{ empty_message }}</p>
+  {% endif %}
+{% endmacro %}

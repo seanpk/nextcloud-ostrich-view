@@ -34,7 +34,9 @@ export default async function registerFileRoutes(app) {
       breadcrumbs: trail,
       showBack: true,
       backHref: parent === '' ? '/' : `/files/${encodePath(parent)}`,
-      showToggle: false,
+      // The toggle rides along on every page: finding Tasks must never depend
+      // on backing out to the home screen first.
+      showToggle: true,
       section: 'files',
     });
   }

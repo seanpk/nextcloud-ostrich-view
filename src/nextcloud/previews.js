@@ -224,7 +224,11 @@ async function readHead(path, length = 12) {
  *           size?: number,
  *           pruneGraceMs?: number,
  *           unavailableTtlMs?: number,
+ *           now?: () => number,
  *           log?: { warn: Function } }} options
+ *   now: clock, injectable so the age-sensitive behaviour (pruning, the
+ *   negative-answer TTL) can be tested without sleeping or racing the wall
+ *   clock -- the same escape hatch `sweepTempFiles` takes.
  */
 export function createPreviewCache({
   dir,
@@ -232,6 +236,7 @@ export function createPreviewCache({
   size = PREVIEW_SIZE,
   pruneGraceMs = PRUNE_GRACE_MS,
   unavailableTtlMs = UNAVAILABLE_TTL_MS,
+  now = Date.now,
   log,
 } = {}) {
   if (!dir) throw new Error('createPreviewCache: dir is required');
@@ -272,11 +277,12 @@ export function createPreviewCache({
     } catch {
       return;
     }
-    const cutoff = Date.now() - pruneGraceMs;
+    const cutoff = now() - pruneGraceMs;
     await Promise.all(
       staleVariants(names, fileId, keepName).map(async (name) => {
         const path = join(dir, name);
         const info = await stat(path).catch(() => null);
+        // Anything written since the cutoff is still inside the grace window.
         if (!info || info.mtimeMs > cutoff) return;
         memo.delete(name);
         await unlink(path).catch(() => {});
@@ -363,7 +369,7 @@ export function createPreviewCache({
 
       const known = memo.get(fileName);
       if (known?.status === 'unavailable') {
-        if (known.expires > Date.now()) return { status: 'unavailable' };
+        if (known.expires > now()) return { status: 'unavailable' };
         memo.delete(fileName);
       }
 
@@ -385,7 +391,7 @@ export function createPreviewCache({
           } else {
             remember(fileName, {
               status: 'unavailable',
-              expires: Date.now() + unavailableTtlMs,
+              expires: now() + unavailableTtlMs,
             });
           }
           return result;
