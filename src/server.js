@@ -13,8 +13,9 @@ import { loadConfig } from './config.js';
 import { createClient } from './nextcloud/client.js';
 import { createPreviewCache } from './nextcloud/previews.js';
 import { createVisitStore } from './store/visits.js';
+import { createNewSinceCache } from './lib/new-since.js';
 import { InvalidPathError } from './lib/paths.js';
-import { NextcloudError } from './nextcloud/client.js';
+import { NC_UNREACHABLE, NextcloudError } from './nextcloud/client.js';
 import registerAuthRoutes from './routes/auth.js';
 import registerHomeRoutes from './routes/home.js';
 import registerFileRoutes from './routes/files.js';
@@ -63,6 +64,15 @@ const CSP = [
   "frame-ancestors 'self'",
 ].join('; ');
 
+/**
+ * How long the "file server is taking a break" page asks the browser to wait,
+ * in seconds. It is both the `Retry-After` header and the page's own meta
+ * refresh, so an idle tab recovers by itself. A minute: long enough that a
+ * rebooting Nextcloud is usually back, short enough that nobody is left staring
+ * at a stale apology.
+ */
+const UPSTREAM_RETRY_AFTER_SECONDS = 60;
+
 function isPublicPath(pathname) {
   if (PUBLIC_ROUTES.has(pathname)) return true;
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
@@ -72,7 +82,8 @@ function isPublicPath(pathname) {
  * Build the Fastify app. Exported (rather than built at import time) so tests
  * can boot a fully wired instance on an ephemeral port against the mock server.
  *
- * @param {{ config?: object, logger?: object|boolean }} [options]
+ * @param {{ config?: object, logger?: object|boolean,
+ *           newSinceCache?: ReturnType<import('./lib/new-since.js').createNewSinceCache> }} [options]
  */
 export async function buildApp(options = {}) {
   const config = options.config ?? loadConfig();
@@ -117,6 +128,10 @@ export async function buildApp(options = {}) {
   // "New since you last looked" state. Same directory, same volume: one mount
   // carries everything this app remembers between restarts.
   app.decorate('visits', createVisitStore({ dir: config.dataDir, log: app.log }));
+  // The home route's short-lived memory of its last SEARCH answer. Built here
+  // rather than inside the route so a test can hand in one with a short TTL and
+  // a fake clock instead of waiting a minute for an entry to expire.
+  app.decorate('newSinceCache', options.newSinceCache ?? createNewSinceCache());
 
   await app.register(fastifySecureSession, {
     key: config.sessionKey,
@@ -228,6 +243,88 @@ export async function buildApp(options = {}) {
       request.log.error({ err: error }, 'unhandled error');
     }
 
+    // A 404 from a task route must not talk about folders, and must send her
+    // back to the task lists rather than to the file home. The upstream-failure
+    // pages want the same distinction, so it is worked out before them.
+    //
+    // The PATHNAME, not the URL: `/tasks?utm_source=…` is still the task
+    // section, and a link she opened from a message would otherwise get the
+    // folder wording and a button back to the file home.
+    const pathname = request.url.split('?')[0];
+    const inTasks = pathname === '/tasks' || pathname.startsWith('/tasks/');
+    const upstreamBackHref = inTasks ? '/tasks' : '/';
+
+    // Nextcloud is not answering at all: refused, timed out, DNS gone, or the
+    // Beelink rebooting while she happens to be looking. This is the ONE
+    // self-healing failure, so it is the only one that gets the "come back in a
+    // minute" page -- and it is recognised by the marker the client sets where
+    // `fetch` itself threw, never by a missing status. A status-less error from
+    // a response that DID arrive (a 207 we couldn't parse) is a
+    // misconfiguration; promising it will fix itself would leave that page up
+    // forever.
+    if (error instanceof NextcloudError && error.code === NC_UNREACHABLE) {
+      reply.code(503);
+      // Both the header (for anything polite enough to read it) and the meta
+      // refresh in the view (for the tab she has left open on the sofa).
+      reply.header('Retry-After', String(UPSTREAM_RETRY_AFTER_SECONDS));
+      return reply.view('upstream-error', {
+        viewer: request.viewer,
+        title: 'The file server is taking a break',
+        message:
+          'Your files live on another computer, and it isn’t answering right ' +
+          'now. Nothing you did caused this, and nothing has been lost. ' +
+          'Please try again in a few minutes — this page will check for you.',
+        retryAfter: UPSTREAM_RETRY_AFTER_SECONDS,
+        backHref: upstreamBackHref,
+      });
+    }
+
+    // Nextcloud is there and something is wrong that waiting will not fix.
+    // Three shapes, one page: the reader is told the same calm thing either way
+    // -- only the single line addressed to whoever runs the site differs,
+    // because only that line is actionable and it must point at the right thing.
+    //
+    //  401  the app password was revoked or expired, or the account is disabled;
+    //  403  authenticated but not allowed *this* -- often a perfectly good app
+    //       password against a share or a file-access rule that says no, so the
+    //       note must not assert the password is the problem;
+    //  no status  a response arrived and made no sense (not a multistatus, an
+    //       HTML login page, a 207 that describes nothing we asked about) --
+    //       which is what a wrong NC_BASE_URL or a proxy in the way looks like.
+    const isMalformed = error instanceof NextcloudError && error.status === undefined;
+    const needsAttention =
+      isMalformed || (error instanceof NextcloudError && (error.status === 401 || error.status === 403));
+
+    if (needsAttention) {
+      let ownerNote;
+      if (isMalformed) {
+        ownerNote =
+          'Whoever runs this site needs to check that NC_BASE_URL points at ' +
+          'Nextcloud itself, and that nothing in front of it is rewriting the answer.';
+      } else if (error.status === 401) {
+        ownerNote = 'Whoever runs this site needs to check the app’s Nextcloud app-password.';
+      } else {
+        ownerNote =
+          'Whoever runs this site needs to check the app’s Nextcloud access — ' +
+          'start with the app password, then any file-access rules.';
+      }
+
+      reply.code(502);
+      return reply.view('upstream-error', {
+        viewer: request.viewer,
+        title: 'The connection to the file server needs attention',
+        message:
+          'The file server is there, but it isn’t letting this site read your ' +
+          'files at the moment. Nothing you did caused this, and nothing has ' +
+          'been lost — it needs someone to sort out at the other end.',
+        // Deliberately no credentials, hostnames, statuses or stack detail: the
+        // log line above carries all of that, and this page is public to anyone
+        // holding a passphrase.
+        ownerNote,
+        backHref: upstreamBackHref,
+      });
+    }
+
     // The per-IP login limiter throws a 429; it deserves the same calm
     // wait-a-minute message as the global window, not a "we broke" page.
     if (status === 429) {
@@ -239,9 +336,6 @@ export async function buildApp(options = {}) {
       });
     }
 
-    // A 404 from a task route must not talk about folders, and must send her
-    // back to the task lists rather than to the file home.
-    const inTasks = request.url === '/tasks' || request.url.startsWith('/tasks/');
     const notFoundMessage = inTasks
       ? "We couldn't find that task list. It may have been unshared."
       : "We couldn't find that folder. It may have been moved or unshared.";
@@ -260,6 +354,16 @@ export async function buildApp(options = {}) {
   });
 
   // --- Routes ---------------------------------------------------------------
+  /**
+   * THIS app's liveness, and deliberately nothing else.
+   *
+   * It does not contact Nextcloud, and it must not start: Docker restarts a
+   * container whose health check fails, so probing Nextcloud from here would
+   * turn "Nextcloud is rebooting" into "the viewer restart-loops until it comes
+   * back" -- taking down the login page and the friendly "file server is taking
+   * a break" page, which are exactly what should still work at that moment.
+   * A green /healthz means "the process booted and its config validated".
+   */
   app.get('/healthz', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     return { status: 'ok', uptime: Math.round(process.uptime()) };

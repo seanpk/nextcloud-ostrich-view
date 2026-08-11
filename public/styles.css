@@ -467,6 +467,17 @@ a.tile:focus-visible {
   color: var(--danger);
 }
 
+/* The one line on the upstream-failure page addressed to whoever runs the site,
+   not to the person reading it. Quiet on purpose: it must be findable, and it
+   must not look like something she is being asked to do. */
+.notice--owner {
+  background: var(--card);
+  border-color: var(--line);
+  border-style: dashed;
+  color: var(--ink-soft);
+  font-size: 1rem;
+}
+
 /* ---------- Footer ---------- */
 
 .footer {

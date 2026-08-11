@@ -11,14 +11,32 @@
 
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'PROPFIND', 'REPORT', 'SEARCH', 'OPTIONS']);
 
+/**
+ * "Nothing answered at all": the fetch itself never produced a response --
+ * refused, timed out, DNS gone, TLS refused, the Beelink rebooting.
+ *
+ * Set at the ONE place that can actually know it (the catch below), and nowhere
+ * else. It is what the "file server is taking a break" page keys on, and that
+ * page promises the fault will clear by itself -- so it must never be reachable
+ * from a response we DID receive and merely failed to make sense of. Those get
+ * the "needs attention" page instead, because a garbled answer means a
+ * misconfiguration that will still be there in a minute.
+ *
+ * Absence of `status` is NOT the same signal: half a dozen throw sites build a
+ * status-less NextcloudError for a malformed 207 that arrived perfectly well.
+ */
+export const NC_UNREACHABLE = 'NC_UNREACHABLE';
+
 export class NextcloudError extends Error {
-  constructor(message, { status, method, url, body } = {}) {
+  constructor(message, { status, method, url, body, code } = {}) {
     super(message);
     this.name = 'NextcloudError';
     this.status = status;
     this.method = method;
     this.url = url;
     this.body = body;
+    /** `NC_UNREACHABLE` when nothing answered; null for everything else. */
+    this.code = code ?? null;
     // 401/403/404 upstream shouldn't surface as our own auth failures.
     this.statusCode = status === 404 ? 404 : 502;
   }
@@ -71,6 +89,9 @@ export function createClient({ baseUrl, user, appPassword, fetchImpl = globalThi
       throw new NextcloudError(`Could not reach Nextcloud (${verb} ${url}): ${err.message}`, {
         method: verb,
         url,
+        // The only place this marker is ever set: here, `fetch` threw, so there
+        // was no answer at all. See NC_UNREACHABLE.
+        code: NC_UNREACHABLE,
       });
     }
     return response;

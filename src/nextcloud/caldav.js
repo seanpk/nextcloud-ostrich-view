@@ -92,8 +92,15 @@ export function calendarRoots(client) {
   return { requestRoot, hrefRoot: decodeURIComponent(`${basePath}${requestRoot}`) };
 }
 
-/** Route-safe id derived from a calendar's own URI segment. */
-function toSlug(decodedSegment) {
+/**
+ * Route-safe id derived from a calendar's own URI segment.
+ *
+ * Exported so the mock's dataset loader can mint list ids with the very same
+ * rule: a demo whose `/tasks/<slug>` links are built by a *second* slugifier
+ * quietly disagrees with production the moment a list is called "Café" (`caf`
+ * one side, `cafe` the other), and the demo is where that would go unnoticed.
+ */
+export function toSlug(decodedSegment) {
   const cleaned = String(decodedSegment)
     .normalize('NFKD')
     // Drop combining marks (NFKD split "é" into "e" + U+0301), then anything

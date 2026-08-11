@@ -113,6 +113,10 @@ export function parseMultistatus(xml, { davRoot, requestPath = '' } = {}) {
   // back when nothing has changed, which is the ordinary case. Only a
   // multistatus that is present but holds something other than responses is
   // garbage worth throwing over.
+  //
+  // It is valid HERE, at the parse layer, and only because SEARCH says so. A
+  // PROPFIND caller must not accept it as a folder with no children -- see the
+  // `self === null` check in `propfind`, and the one in `statFile`.
   if (typeof multistatus !== 'object') {
     if (String(multistatus).trim() === '') return { self: null, entries: [] };
     throw new NextcloudError('PROPFIND response had an unreadable <multistatus> element.');
@@ -161,7 +165,9 @@ export function parsePropfind(xml, options) {
  * @param {ReturnType<import('./client.js').createClient>} client
  * @param {string} normalized already normalized relative path ('' = root)
  * @param {{depth: '0'|'1', notFoundMessage: string}} options
- * @returns {Promise<{self: object|null, entries: Array<object>, url: string}>}
+ * @returns {Promise<{self: object, entries: Array<object>, url: string}>}
+ *   `self` is never null: a 207 that does not describe what was asked about is
+ *   an upstream failure, and is thrown here rather than handed on.
  */
 async function doPropfind(client, normalized, { depth, notFoundMessage }) {
   const encoded = encodePath(normalized);
@@ -205,6 +211,28 @@ async function doPropfind(client, normalized, { depth, notFoundMessage }) {
     davRoot: client.davRoot,
     requestPath: normalized,
   });
+
+  // A PROPFIND MUST describe the resource it was asked about -- at Depth 1 even
+  // when the collection is empty, at Depth 0 always. An answer without a self
+  // entry (a bodyless 207, or `<d:multistatus/>`, which is a perfectly good
+  // SEARCH result and no kind of PROPFIND answer at all) would otherwise sail
+  // through as zero children and render as "Nothing has been shared with you
+  // yet" -- a confident, wrong sentence about somebody's files.
+  //
+  // This lives HERE, not in the two callers, because the fault is one fault and
+  // it had grown two contradictory stories: a folder listing called it an
+  // upstream failure while a file stat called the very same answer a 404
+  // ("moved or unshared"). It is neither missing nor gone: the server answered
+  // badly. No status, so the error handler renders the upstream-failure page,
+  // and a genuine upstream 404 -- the case above -- stays the only route to
+  // "we couldn't find that".
+  if (parsed.self === null) {
+    throw new NextcloudError(`PROPFIND response did not describe ${normalized || '/'}`, {
+      method: 'PROPFIND',
+      url,
+    });
+  }
+
   return { ...parsed, url };
 }
 
@@ -214,6 +242,9 @@ async function doPropfind(client, normalized, { depth, notFoundMessage }) {
  * @param {ReturnType<import('./client.js').createClient>} client
  * @param {string} relPath normalized relative path ('' = root)
  * @returns {Promise<Array<object>>} children, self-entry removed
+ * @throws {NextcloudError} 404 when the path is missing or is a plain file;
+ *   status-less (i.e. an upstream failure) when the 207 does not describe the
+ *   requested collection at all.
  */
 export async function propfind(client, relPath = '') {
   const normalized = normalizeRelPath(relPath);
@@ -224,7 +255,7 @@ export async function propfind(client, relPath = '') {
 
   // A Depth-1 PROPFIND on a plain file answers 207 with only the self entry;
   // without this check a file URL would render as an empty "folder".
-  if (self && !self.isFolder) {
+  if (!self.isFolder) {
     throw new NextcloudError(`Not a folder: ${normalized}`, {
       status: 404,
       method: 'PROPFIND',
@@ -242,7 +273,9 @@ export async function propfind(client, relPath = '') {
  * Returns the entry for the path itself, folders included -- callers decide
  * what to do with `isFolder` (the media routes 404 on it). A missing file is a
  * NextcloudError with status 404, so the shared error handler renders the calm
- * "we couldn't find that" page.
+ * "we couldn't find that" page; a 207 that describes nothing we asked about is
+ * status-less instead, because that is an upstream that answered badly and not
+ * a file that has gone.
  *
  * @param {ReturnType<import('./client.js').createClient>} client
  * @param {string} relPath normalized relative path; '' (the root) is rejected
@@ -260,20 +293,13 @@ export async function statFile(client, relPath) {
     });
   }
 
-  const { self, url } = await doPropfind(client, normalized, {
+  // A 207 that doesn't describe what we asked about is an upstream failure, not
+  // a missing file, and `doPropfind` has already thrown it as one -- the two
+  // callers must not tell a reader two different stories about one fault.
+  const { self } = await doPropfind(client, normalized, {
     depth: '0',
     notFoundMessage: `Not found: ${normalized}`,
   });
-
-  if (!self) {
-    // A 207 that doesn't describe what we asked about: treat as missing rather
-    // than guessing from whatever else the server volunteered.
-    throw new NextcloudError(`No metadata returned for ${normalized}`, {
-      status: 404,
-      method: 'PROPFIND',
-      url,
-    });
-  }
 
   return self;
 }

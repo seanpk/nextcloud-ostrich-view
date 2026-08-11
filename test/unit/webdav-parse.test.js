@@ -4,8 +4,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
-import { parseMultistatus, parsePropfind, propfind, sortEntries } from '../../src/nextcloud/webdav.js';
-import { createClient, NextcloudError } from '../../src/nextcloud/client.js';
+import {
+  parseMultistatus,
+  parsePropfind,
+  propfind,
+  sortEntries,
+  statFile,
+} from '../../src/nextcloud/webdav.js';
+import { createClient, NC_UNREACHABLE, NextcloudError } from '../../src/nextcloud/client.js';
 import { buildMultistatus } from '../mock-nextcloud/index.js';
 import { DEFAULT_TREE, resolveNode } from '../mock-nextcloud/tree.js';
 
@@ -253,6 +259,53 @@ test('client: refuses to issue write methods', async () => {
   }
 });
 
+test('client: a fetch that never answered is marked unreachable, and only that one', async () => {
+  // The marker is what the "file server is taking a break" page keys on, and
+  // that page promises the fault will pass. So it is set at the ONE place that
+  // can know nothing answered -- here, where `fetch` itself threw -- and never
+  // inferred downstream from a missing status, which a malformed 207 also has.
+  const dead = createClient({
+    baseUrl: 'http://nextcloud.test',
+    user: 'ostrich-viewer',
+    appPassword: 'pw',
+    fetchImpl: async () => {
+      throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    },
+  });
+
+  await assert.rejects(() => propfind(dead, ''), (err) => {
+    assert.ok(err instanceof NextcloudError);
+    assert.equal(err.code, NC_UNREACHABLE);
+    assert.equal(err.status, undefined);
+    return true;
+  });
+
+  // A real, closed port: the same verdict, through undici rather than a stub.
+  const refused = createClient({
+    baseUrl: 'http://127.0.0.1:1',
+    user: 'ostrich-viewer',
+    appPassword: 'pw',
+  });
+  await assert.rejects(() => propfind(refused, ''), (err) => {
+    assert.equal(err.code, NC_UNREACHABLE);
+    return true;
+  });
+
+  // Whereas an answer that arrived and made no sense is NOT unreachable, even
+  // though it too has no status.
+  const garbled = createClient({
+    baseUrl: 'http://nextcloud.test',
+    user: 'ostrich-viewer',
+    appPassword: 'pw',
+    fetchImpl: async () => new Response('<html>Sign in</html>', { status: 207 }),
+  });
+  await assert.rejects(() => propfind(garbled, ''), (err) => {
+    assert.ok(err instanceof NextcloudError);
+    assert.equal(err.code, null, 'received-but-garbled must never reach the self-healing page');
+    return true;
+  });
+});
+
 test('client: sends Basic auth built from the app password', async () => {
   let authHeader = null;
   const client = createClient({
@@ -316,6 +369,83 @@ test('propfind: a file path is a 404, never an empty folder', async () => {
     assert.match(err.message, /Not a folder/);
     return true;
   });
+});
+
+test('propfind: a 207 that describes no folder at all is an upstream failure', async () => {
+  // A bodyless `<d:multistatus/>` is a perfectly good SEARCH answer -- and no
+  // kind of folder listing. A Depth-1 PROPFIND must describe the collection it
+  // was asked about, even an empty one, so accepting this would render as
+  // "Nothing has been shared with you yet": a confident, wrong sentence about
+  // somebody's files.
+  for (const body of [
+    '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>',
+    '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"></d:multistatus>',
+  ]) {
+    const client = createClient({
+      baseUrl: 'http://nextcloud.test',
+      user: 'ostrich-viewer',
+      appPassword: 'pw',
+      fetchImpl: async () =>
+        new Response(body, { status: 207, headers: { 'Content-Type': 'application/xml' } }),
+    });
+
+    await assert.rejects(() => propfind(client, ''), (err) => {
+      assert.ok(err instanceof NextcloudError);
+      assert.match(err.message, /did not describe/);
+      // Not a 404: the folder is not missing, the answer is. 404 would tell her
+      // it had been unshared; this must reach the upstream-failure page.
+      assert.equal(err.status, undefined);
+      assert.equal(err.statusCode, 502);
+      // And not the "taking a break" page either: something DID answer, so
+      // waiting will not mend it. See NC_UNREACHABLE.
+      assert.equal(err.code, null);
+      return true;
+    });
+  }
+});
+
+test('propfind and statFile agree about a 207 that describes nothing', async () => {
+  // One fault, one story. These two used to disagree: a folder listing called
+  // this an upstream failure while a file stat called the very same answer a
+  // 404 -- so the same broken deployment told the reader "the file server needs
+  // attention" on one page and "it may have been moved or unshared" on the
+  // next. The verdict now lives in the one place both go through.
+  const body = '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>';
+  const client = createClient({
+    baseUrl: 'http://nextcloud.test',
+    user: 'ostrich-viewer',
+    appPassword: 'pw',
+    fetchImpl: async () =>
+      new Response(body, { status: 207, headers: { 'Content-Type': 'application/xml' } }),
+  });
+
+  const verdicts = [];
+  for (const attempt of [() => propfind(client, 'Biology 101'), () => statFile(client, 'welcome.txt')]) {
+    await assert.rejects(attempt, (err) => {
+      verdicts.push({ status: err.status, statusCode: err.statusCode, code: err.code });
+      return err instanceof NextcloudError;
+    });
+  }
+
+  assert.deepEqual(verdicts[0], verdicts[1], 'both callers must classify it the same way');
+  assert.deepEqual(verdicts[0], { status: undefined, statusCode: 502, code: null });
+});
+
+test('propfind: an empty folder is still a folder, and still lists nothing', async () => {
+  // The distinction the check above turns on: a real empty folder DOES describe
+  // itself, so it must keep coming back as zero children rather than an error.
+  const client = createClient({
+    baseUrl: 'http://nextcloud.test',
+    user: 'ostrich-viewer',
+    appPassword: 'pw',
+    fetchImpl: async () =>
+      new Response(
+        buildMultistatus({ davRoot: DAV_ROOT, relPath: 'Empty', node: { type: 'folder', children: {} } }),
+        { status: 207, headers: { 'Content-Type': 'application/xml' } }
+      ),
+  });
+
+  assert.deepEqual(await propfind(client, 'Empty'), []);
 });
 
 test('propfind: follows a single same-origin redirect to the slash-terminated form', async () => {

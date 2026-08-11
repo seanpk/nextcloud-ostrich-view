@@ -1,0 +1,171 @@
+{
+  "_comment": [
+    "The demo's entire Nextcloud, as one file. `npm run demo` serves it through",
+    "test/mock-nextcloud/ and boots the real app against it.",
+    "",
+    "Files: a folder has `children`; a file has `text` (typed inline) or `asset`",
+    "(a real file, path relative to this JSON file). `contentType` is guessed",
+    "from the extension unless you say otherwise.",
+    "",
+    "Dates: absolute (\"2026-08-12\", or a full ISO timestamp) or an offset from",
+    "now -- \"-3h\", \"+2d\", \"-45m\". Offsets are what keep this file believable a",
+    "year from now, so the two recently-touched files below stay recent and no",
+    "task is permanently overdue.",
+    "",
+    "Tasks: each list has a displayName, an optional #rrggbb colour, and tasks",
+    "with summary / description / due / status / completed / percent / priority /",
+    "subtasks. `completed` implies the task is done.",
+    "",
+    "Edit anything here and re-run `npm run demo`. Nothing else needs changing."
+  ],
+
+  "files": {
+    "Biology 101": {
+      "lastModified": "-1d",
+      "children": {
+        "Lectures": {
+          "children": {
+            "Week 1 — Cells and organelles.pdf": {
+              "asset": "assets/sample.pdf",
+              "lastModified": "-11d"
+            },
+            "Week 2 — Mitosis.pdf": {
+              "asset": "assets/sample.pdf",
+              "lastModified": "-20h"
+            },
+            "cell diagram.png": {
+              "asset": "assets/sample.png",
+              "lastModified": "-9d"
+            },
+            "reading list.txt": {
+              "text": "Before the midterm:\n\n  1. Chapter 4, all of it\n  2. Chapter 5, sections 1-3 only\n  3. The photosynthesis handout (on paper, in the folder by the door)\n",
+              "lastModified": "-8d"
+            }
+          }
+        },
+        "Lab Reports": {
+          "children": {
+            "Lab 1 — Using the microscope.pdf": {
+              "asset": "assets/sample.pdf",
+              "lastModified": "-13d"
+            },
+            "pond water sample.jpg": {
+              "asset": "assets/sample.jpg",
+              "lastModified": "-3h"
+            }
+          }
+        },
+        "syllabus.pdf": {
+          "asset": "assets/sample.pdf",
+          "lastModified": "-24d"
+        }
+      }
+    },
+
+    "Math 210": {
+      "lastModified": "-4d",
+      "children": {
+        "Problem Sets": {
+          "children": {
+            "Problem Set 1.pdf": {
+              "asset": "assets/sample.pdf",
+              "lastModified": "-18d"
+            },
+            "Problem Set 2.pdf": {
+              "asset": "assets/sample.pdf",
+              "lastModified": "-6d"
+            },
+            "Problem Set 3.pdf": {
+              "asset": "assets/sample.pdf",
+              "lastModified": "-4d"
+            }
+          }
+        },
+        "graph sketch.png": {
+          "asset": "assets/sample.png",
+          "lastModified": "-5d"
+        },
+        "office hours.txt": {
+          "text": "Prof. Ruiz — Tuesdays 2-4pm, Kemper 318.\nTA (Sam) — Thursdays 10-11am, in the math lounge.\n",
+          "lastModified": "-21d"
+        }
+      }
+    },
+
+    "Essays": {
+      "lastModified": "-2d",
+      "children": {
+        "Café history — outline.txt": {
+          "text": "Working title: \"The café as a public room\"\n\n  1. Vienna, 1780-1900: who was allowed in\n  2. The reading tables, and what people did with them\n  3. What the chain café kept, and what it quietly dropped\n\nDue at the end of the month. Needs two more sources for part 2.\n",
+          "lastModified": "-7d"
+        },
+        "Café history — draft 2.pdf": {
+          "asset": "assets/sample.pdf",
+          "lastModified": "-16d"
+        }
+      }
+    }
+  },
+
+  "tasks": [
+    {
+      "displayName": "School",
+      "color": "#1c4f8b",
+      "tasks": [
+        {
+          "summary": "Finish the Biology lab report",
+          "description": "Three parts:\n1. Write up the method\n2. Plot the results\n3. Read it back out loud before handing it in",
+          "due": "+2d",
+          "priority": 1,
+          "percent": 40,
+          "subtasks": [
+            { "summary": "Collect pond samples", "due": "+1d" },
+            { "summary": "Draw the graphs" },
+            { "summary": "Borrow the lab manual", "completed": "-2d" }
+          ]
+        },
+        {
+          "summary": "Math 210 problem set 3",
+          "due": "+5d"
+        },
+        {
+          "summary": "Read chapter 4 of the Biology text"
+        },
+        {
+          "summary": "Two more sources for the café essay",
+          "due": "-1d"
+        },
+        {
+          "summary": "Email Professor Ruiz about office hours",
+          "completed": "-1d"
+        },
+        {
+          "summary": "Buy a lab notebook",
+          "completed": "-4d"
+        }
+      ]
+    },
+    {
+      "displayName": "Apartment",
+      "color": "#2f7a3f",
+      "tasks": [
+        {
+          "summary": "Take the bins out",
+          "due": "+0d"
+        },
+        {
+          "summary": "Pay the internet bill",
+          "description": "Splitting it with Sam this month.",
+          "due": "+4d"
+        },
+        {
+          "summary": "Empty the dishwasher"
+        },
+        {
+          "summary": "Vacuum the stairs",
+          "completed": "-2d"
+        }
+      ]
+    }
+  ]
+}

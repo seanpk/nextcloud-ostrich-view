@@ -274,17 +274,38 @@ export async function walkChangedSince(client, since, options = {}) {
 }
 
 /**
- * The statuses that mean "this server does not do SEARCH, and never will".
+ * Does this failure mean "this server does not do SEARCH, and never will"?
  *
- * 405 is the honest one; 501 says the same thing; 400 is what Nextcloud without
- * the search backend answers a `basicsearch` with; 404 means the DAV endpoint
- * has no SEARCH handler at all. Everything else -- a 502 from a proxy that was
- * being restarted, a 500, a dropped socket -- is a bad minute, not a verdict.
+ * The rule is the status class, not a list of statuses. Anything below 500 is
+ * the server answering us on purpose -- 405 is the honest refusal, 400 is what
+ * Nextcloud without the search backend answers a `basicsearch` with, 404 means
+ * the DAV endpoint has no SEARCH handler, and a 302 to (or a 200 of) an HTML
+ * login page is a front-end that will never route SEARCH to Nextcloud at all.
+ * A list of statuses missed those last two, and the cost of missing them is not
+ * a slow request: it is a doomed probe plus a warning line on EVERY home load,
+ * for the life of the process.
+ *
+ * 5xx and network errors stay transient: a 502 from a proxy being restarted, a
+ * 500, a dropped socket say nothing about SEARCH support, and demoting on one
+ * would cost the instance its fast path until the next restart. 501 is the one
+ * 5xx that is a verdict rather than a bad minute -- "not implemented" is
+ * precisely the thing we are asking about.
+ *
+ * Two sub-500 statuses are carved back out, because they are the server saying
+ * "not now" rather than "not ever": 408 (it gave up waiting for our request) and
+ * 429 (we are asking too often -- which a home page under a burst of refreshes
+ * genuinely can, and which a proxy can answer on Nextcloud's behalf). Demoting
+ * on either would trade one busy moment for a permanent walk.
  */
-const SEARCH_REFUSED_STATUSES = new Set([400, 404, 405, 501]);
+const SEARCH_NOT_IMPLEMENTED = 501;
+const SEARCH_TRY_AGAIN = new Set([408, 429]);
 
 function refusesSearch(err) {
-  return err instanceof SearchUnsupportedError && SEARCH_REFUSED_STATUSES.has(err.status);
+  if (!(err instanceof SearchUnsupportedError)) return false;
+  // No status at all means we never got an answer; that is a bad minute.
+  if (!Number.isInteger(err.status)) return false;
+  if (SEARCH_TRY_AGAIN.has(err.status)) return false;
+  return err.status < 500 || err.status === SEARCH_NOT_IMPLEMENTED;
 }
 
 /**
@@ -318,9 +339,16 @@ export function clearStrategyMemo(memo = strategyMemo) {
  * @param {{limit?: number, maxDepth?: number, maxFolders?: number,
  *          memo?: Map, log?: {warn: Function}}} [options]
  * @returns {Promise<{entries: Array<object>, strategy: 'search'|'walk',
- *                    truncated: boolean}>}
+ *                    settled: boolean, truncated: boolean}>}
  *   truncated: the walk gave up at one of its bounds, so there may be more it
  *   never saw. Always false for SEARCH, which is bounded by `limit` alone.
+ *
+ *   settled: this strategy is the one the instance has settled on, rather than
+ *   a one-off fallback. It answers "is a better answer coming?", which is not
+ *   the same question as "how was this one obtained" -- a walk run because
+ *   SEARCH is refused outright is the best this instance will ever do, while a
+ *   walk run because SEARCH had a bad minute will be replaced by a SEARCH on the
+ *   next load. Callers that cache (see routes/home.js) need the difference.
  * @throws {NextcloudError} only if the fallback walk cannot list the root
  */
 export async function findChangedSince(client, since, options = {}) {
@@ -331,7 +359,7 @@ export async function findChangedSince(client, since, options = {}) {
     try {
       const entries = await searchChangedSince(client, since, bounds);
       memo.set(key, 'search');
-      return { entries, strategy: 'search', truncated: false };
+      return { entries, strategy: 'search', settled: true, truncated: false };
     } catch (err) {
       if (refusesSearch(err)) {
         memo.set(key, 'walk');
@@ -351,7 +379,10 @@ export async function findChangedSince(client, since, options = {}) {
   }
 
   const { entries, truncated } = await walkChangedSince(client, since, bounds);
-  return { entries, strategy: 'walk', truncated };
+  // The memo is what says which of the two walks this was: it holds 'walk' only
+  // once a structural refusal has been recorded, and is left alone by a
+  // transient one.
+  return { entries, strategy: 'walk', settled: memo.get(key) === 'walk', truncated };
 }
 
 export { SEARCH_ROOT };

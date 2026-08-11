@@ -7,6 +7,9 @@
     <title>{{ title }} · Ostrich View</title>
     <link rel="stylesheet" href="/public/styles.css" />
     <link rel="icon" href="/public/icons/folder.svg" type="image/svg+xml" />
+    {# Pages that need something of their own in <head>; only the upstream-down
+       page uses it, for its self-retry meta refresh. #}
+    {% block head %}{% endblock %}
   </head>
   <body>
     {#

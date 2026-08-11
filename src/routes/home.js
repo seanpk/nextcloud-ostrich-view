@@ -1,12 +1,7 @@
 import { propfind, sortEntries } from '../nextcloud/webdav.js';
 import { findChangedSince, SEARCH_LIMIT } from '../nextcloud/search.js';
 import { toTiles } from '../lib/tiles.js';
-import {
-  buildNewSince,
-  createNewSinceCache,
-  formatVisitLabel,
-  NEW_SINCE_CAP,
-} from '../lib/new-since.js';
+import { buildNewSince, formatVisitLabel, NEW_SINCE_CAP } from '../lib/new-since.js';
 
 /**
  * Home.
@@ -30,8 +25,9 @@ import {
  * permanently.
  */
 export default async function registerHomeRoutes(app) {
-  // One per app instance, so tests get a fresh one with the server.
-  const changeCache = createNewSinceCache();
+  // Built in server.js, one per app instance, so tests get a fresh one with the
+  // server -- and can hand in one with a short TTL and a fake clock.
+  const changeCache = app.newSinceCache;
 
   /**
    * Advance the visit and work out what to show above the folders.
@@ -61,8 +57,11 @@ export default async function registerHomeRoutes(app) {
     try {
       const since = new Date(previousVisitStartedAt);
 
-      // Mid-sitting, `since` does not move, so every refresh would otherwise ask
-      // Nextcloud the same question again. Only successful answers get cached.
+      // Mid-sitting, `since` does not move, so a burst of refreshes would
+      // otherwise ask Nextcloud the same question again. The cache entry expires
+      // after a minute (see NEW_SINCE_CACHE_TTL_MS) precisely because `since`
+      // does NOT move: a sitting can last all day, and a file uploaded in the
+      // middle of one still has to turn up on the next reload.
       let found = changeCache.get(request.viewer.name, previousVisitStartedAt);
       if (found) {
         request.log.debug({ found: found.entries.length }, 'new-since lookup (remembered)');
@@ -71,9 +70,30 @@ export default async function registerHomeRoutes(app) {
           limit: SEARCH_LIMIT,
           log: request.log,
         });
-        changeCache.set(request.viewer.name, previousVisitStartedAt, found);
+        // A truncated answer is a degraded one -- but whether it is worth
+        // remembering turns on whether a better one is coming, not on how
+        // degraded it is.
+        //
+        // If SEARCH merely had a bad minute, the walk was a one-off: the next
+        // load re-probes, and caching the half-answer would hold it for the
+        // whole window and waste exactly the re-probe that could replace it.
+        //
+        // If the instance has SETTLED on the walk, though, this IS the answer --
+        // and on a share deep or wide enough to hit the bounds, EVERY answer is
+        // truncated. Refusing to cache those means the cache is never used at
+        // all on precisely the instances that can least afford it: up to
+        // WALK_MAX_FOLDERS PROPFINDs on every pull-to-refresh, for a section
+        // that is a bonus.
+        if (!found.truncated || found.settled) {
+          changeCache.set(request.viewer.name, previousVisitStartedAt, found);
+        }
         request.log.debug(
-          { strategy: found.strategy, found: found.entries.length, truncated: found.truncated },
+          {
+            strategy: found.strategy,
+            settled: found.settled,
+            found: found.entries.length,
+            truncated: found.truncated,
+          },
           'new-since lookup'
         );
       }

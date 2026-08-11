@@ -1,0 +1,34 @@
+{% extends "layout.njk" %}
+
+{#
+  Nextcloud is up but not answering us usefully.
+
+  Deliberately NOT error.njk: "Something went wrong on our end" is both wrong
+  (nothing here is broken) and useless (there is nothing she can do about it).
+  This page names the situation in her terms -- the other computer isn't
+  answering -- and, when the fault needs a person, adds exactly one line for
+  whoever runs the site. Never a hostname, a status code or a stack trace: the
+  log has all of that, and the browser is not where it belongs.
+#}
+
+{% block head %}
+  {% if retryAfter %}
+    {#
+      An idle tab left open on this page recovers by itself once Nextcloud is
+      back, which is the whole point: nobody has to notice, reload, or ask.
+    #}
+    <meta http-equiv="refresh" content="{{ retryAfter }}" />
+  {% endif %}
+{% endblock %}
+
+{% block heading %}{{ title }}{% endblock %}
+
+{% block content %}
+  <p class="lede">{{ message }}</p>
+
+  {% if ownerNote %}
+    <p class="notice notice--owner">{{ ownerNote }}</p>
+  {% endif %}
+
+  <p><a class="btn btn--primary" href="{{ backHref | default('/') }}">Try again</a></p>
+{% endblock %}

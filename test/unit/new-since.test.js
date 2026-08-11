@@ -6,6 +6,7 @@ import {
   createNewSinceCache,
   folderLabelFor,
   formatVisitLabel,
+  NEW_SINCE_CACHE_TTL_MS,
   NEW_SINCE_CAP,
 } from '../../src/lib/new-since.js';
 
@@ -161,6 +162,46 @@ test('createNewSinceCache: the same viewer and baseline is answered from memory'
   assert.equal(cache.get('mom', '2026-08-09T09:00:00.000Z'), undefined);
   // And one viewer's answer is never handed to another.
   assert.equal(cache.get('gran', '2026-08-08T09:00:00.000Z'), undefined);
+});
+
+test('createNewSinceCache: an answer goes stale, so a long sitting is not frozen', () => {
+  // The bug this exists for: `previousVisitStartedAt` only moves when a SITTING
+  // rotates, and a sitting only ends after six idle hours. A viewer who looks
+  // more often than that produces the same key forever, so without expiry the
+  // first answer of the day would be the last one she ever saw.
+  let clock = 1_000;
+  const cache = createNewSinceCache({ ttlMs: 100, now: () => clock });
+  const answer = { entries: [], strategy: 'search', truncated: false };
+
+  cache.set('mom', 'baseline', answer);
+  clock += 99;
+  assert.equal(cache.get('mom', 'baseline'), answer, 'a burst of refreshes still dedupes');
+
+  clock += 1;
+  assert.equal(cache.get('mom', 'baseline'), undefined, 'and then the question gets asked again');
+  assert.equal(cache.size, 0, 'the stale entry is dropped, not re-checked forever');
+});
+
+test('createNewSinceCache: re-setting an answer starts its life over', () => {
+  let clock = 0;
+  const cache = createNewSinceCache({ ttlMs: 100, now: () => clock });
+
+  cache.set('mom', 'baseline', { entries: [1] });
+  clock += 100;
+  assert.equal(cache.get('mom', 'baseline'), undefined);
+
+  cache.set('mom', 'baseline', { entries: [2] });
+  clock += 99;
+  assert.deepEqual(cache.get('mom', 'baseline'), { entries: [2] });
+});
+
+test('createNewSinceCache: the default window is short enough to matter', () => {
+  // Long enough to swallow pull-to-refresh; far shorter than a sitting.
+  assert.ok(NEW_SINCE_CACHE_TTL_MS > 0);
+  assert.ok(
+    NEW_SINCE_CACHE_TTL_MS <= 5 * 60_000,
+    'anything approaching the six-hour visit window would bring the bug back'
+  );
 });
 
 test('createNewSinceCache: it is a cache, not a leak', () => {

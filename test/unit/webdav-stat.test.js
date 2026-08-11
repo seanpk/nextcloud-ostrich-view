@@ -109,9 +109,12 @@ test('statFile: traversal is rejected before any request is made', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('statFile: a 207 that describes something else is treated as missing', async () => {
+test('statFile: a 207 that describes something else is an upstream failure, not a 404', async () => {
   // A response whose only href is a *different* resource must not be mistaken
-  // for the file that was asked about.
+  // for the file that was asked about -- and it is not a missing file either.
+  // "It may have been moved or unshared" is a claim about the owner's folder; the
+  // truth is that the server answered badly, which is what `propfind` has
+  // always said about the identical answer. One fault, one story.
   const node = resolveNode(DEFAULT_TREE, 'welcome.txt');
   const { client } = clientFor(
     () =>
@@ -122,6 +125,20 @@ test('statFile: a 207 that describes something else is treated as missing', asyn
   );
 
   await assert.rejects(() => statFile(client, 'Biology 101/syllabus.pdf'), (err) => {
+    assert.ok(err instanceof NextcloudError);
+    assert.equal(err.status, undefined, 'no upstream status: the 207 itself was the problem');
+    assert.equal(err.statusCode, 502);
+    return true;
+  });
+});
+
+test('statFile: a genuine upstream 404 is still the only route to "we could not find that"', async () => {
+  // The other half of the test above: narrowing the self-less 207 to an upstream
+  // failure must not cost a really-missing file its calm 404 page.
+  const { client } = clientFor(() => new Response('nope', { status: 404 }));
+
+  await assert.rejects(() => statFile(client, 'Biology 101/gone.pdf'), (err) => {
+    assert.equal(err.status, 404);
     assert.equal(err.statusCode, 404);
     return true;
   });

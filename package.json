@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "NODE_ENV=development node --watch --env-file=.env src/index.js",
+    "demo": "node scripts/demo.js",
     "test": "node --test \"test/unit/**/*.test.js\"",
     "test:e2e": "playwright test",
     "hash": "node scripts/hash-passphrase.js",

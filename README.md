@@ -23,7 +23,9 @@ It is built for one person who does not want to learn Nextcloud:
 It runs in Docker on the Beelink beside Nextcloud and is published through the
 existing Cloudflare tunnel.
 
-See `PLAN.md` for the design and the reasoning behind it.
+See `PLAN.md` for the design and the reasoning behind it. To see the app itself
+without setting any of this up, `npm install && npm run demo` — §7 explains what
+that gives you.
 
 ---
 
@@ -257,8 +259,9 @@ cd /opt/ostrich-view && ./deploy.sh
    50 lines of container output (exit 1).
 
 `/healthz` does not touch Nextcloud, so a PASS means "the process booted and
-its configuration validated" — not "Nextcloud is reachable". If pages 500 after
-a green deploy, check `NC_BASE_URL` and the app password:
+its configuration validated" — not "Nextcloud is reachable". That separation is
+deliberate; see §5.2. If the pages say "taking a break" or "needs attention"
+after a green deploy, §5.2 and §5.3 say which is which; the detail is in
 `docker compose logs ostrich-view`.
 
 Deploys are hand-triggered on purpose. CI tests every push, but nothing pushes
@@ -280,7 +283,105 @@ mounted read-only; the container cannot rewrite its own auth config.
 
 ---
 
-## 5. Adding or removing a viewer
+## 5. Starting on boot, and surviving Nextcloud
+
+### 5.1 Start on boot
+
+The compose service is declared `restart: unless-stopped`, so Docker itself
+brings the container back after a crash, a reboot or a power cut. The whole
+job, then, is making sure **Docker** starts at boot:
+
+```bash
+systemctl is-enabled docker      # expect: enabled
+sudo systemctl enable --now docker
+```
+
+On most distributions this is already the case after `apt install docker.io` /
+the official convenience script, so the check usually prints `enabled` and
+there is nothing to do. Run the `enable` line anyway if it does not.
+
+After a power cut the sequence is: the Beelink boots → `dockerd` starts →
+Docker restarts every `unless-stopped` container, this one included. Nobody has
+to log in, and there is nothing to run by hand.
+
+**There is deliberately no systemd unit for this app.** A unit would only tell
+systemd to run `docker compose up`, duplicating a restart policy Docker already
+enforces — two things that both believe they own the container's lifecycle, and
+one more file to keep in step with `docker-compose.yml`.
+
+One thing the compose file cannot cover: **`cloudflared`, if it runs on the
+host** rather than as a container. It needs the same treatment, or the app
+comes back after a reboot and the public hostname does not:
+
+```bash
+sudo cloudflared service install    # first time only, installs + enables the unit
+systemctl is-enabled cloudflared    # or just check, if it is already installed
+sudo systemctl enable cloudflared
+```
+
+(If `cloudflared` runs as a container with its own `restart:` policy, Docker
+handles it along with everything else and there is nothing extra to do.)
+
+### 5.2 Boot order, and Nextcloud being down
+
+**There is no start-order dependency.** The app contacts Nextcloud only when
+someone asks for a page — never at boot — so it starts, passes its health check
+and serves the login page whether or not Nextcloud exists yet. Starting the two
+in the "wrong" order is not a failure mode here.
+
+While Nextcloud is starting, restarting, or simply down, the app stays up and
+says so in plain words instead of breaking:
+
+- She can **still log in**: nothing in the login path touches Nextcloud.
+- Any page that needs files or tasks shows **"The file server is taking a
+  break"** — that her files live on another computer which isn't answering
+  right now, that nothing she did caused it, and to try again shortly. It is
+  sent as HTTP 503 with `Retry-After: 60` and refreshes itself every 60
+  seconds, so a tab left open on it **recovers on its own** once Nextcloud is
+  back. Nobody has to notice, reload, or ring anyone.
+- `/healthz` **stays green**, on purpose. It reports this app's liveness only.
+  If it probed Nextcloud, a Nextcloud reboot would fail the health check,
+  Docker would restart this container, and the friendly page above would go
+  down exactly when it is needed.
+
+So: **a "taking a break" page during a reboot is the app working, not a bug.**
+Wait a minute before going looking for one.
+
+### 5.3 The other page: "needs attention"
+
+Some failures do *not* clear up by themselves. When Nextcloud is answering but
+the app still cannot read anything, the page reads **"The connection to the
+file server needs attention"**, sent as HTTP 502 with no auto-retry. She sees
+the same calm wording whichever it is; the one line addressed to whoever runs
+the site says which, because only that line is worth acting on:
+
+| What happened | The line on the page | Where to start |
+|---|---|---|
+| Nextcloud rejects the credentials (HTTP 401) — a revoked or expired app password, or a disabled `ostrich-viewer` account | *"…needs to check the app's Nextcloud app-password."* | The app password (below) |
+| Nextcloud accepts the credentials but forbids the request (HTTP 403) | *"…needs to check the app's Nextcloud access — start with the app password, then any file-access rules."* | The app password first, then group folder / share / file-access-control rules on the `ostrich-viewer` account |
+| Something answered, but not with anything WebDAV — an HTML login page, a redirect, an unreadable multistatus | *"…needs to check that NC_BASE_URL points at Nextcloud itself, and that nothing in front of it is rewriting the answer."* | `NC_BASE_URL` in `.env`, then whatever proxy sits in front of Nextcloud |
+
+A 403 is deliberately *not* reported as a password problem: an app password can
+be perfectly valid and still be told no by a share or an access rule, and
+sending someone off to regenerate credentials that were never the fault is how
+an evening disappears.
+
+No hostnames, statuses or credentials reach the browser; the real detail is in
+`docker compose logs ostrich-view`, at error level.
+
+For the credential cases the fix is section 1, step 3 again: log in as
+`ostrich-viewer`, generate a fresh app password, put it in `.env` as
+`NC_APP_PASSWORD`, and redeploy:
+
+```bash
+cd /opt/ostrich-view
+$EDITOR .env          # NC_APP_PASSWORD=<the new one>
+./deploy.sh
+```
+
+---
+
+## 6. Adding or removing a viewer
 
 1. `npm run hash` (or the `docker compose run` form above) to generate an entry.
 2. Add it to — or delete it from — the array in `config/viewers.json`.
@@ -294,7 +395,79 @@ to the login page at the next restart rather than living out the cookie's
 
 ---
 
-## 6. Development
+## 7. Development
+
+### Try it without a Nextcloud
+
+```bash
+npm install
+npm run demo         # then open http://localhost:3333 — passphrase: ostrich
+```
+
+That is the whole thing. No `.env`, no `config/viewers.json`, no Nextcloud
+anywhere: `scripts/demo.js` starts the mock server from
+`test/mock-nextcloud/` on a spare port, points the **real** app at it, and
+prints the URL and the passphrase. Every route, template and parser is the
+shipping one; only the address the WebDAV requests go to is different.
+
+You get a college student's Nextcloud: **Biology 101** (lecture PDFs, a lab
+photo, a reading list), **Math 210** (problem sets, a graph), an **Essays**
+folder, and two task lists — **School** (with a nested subtask, one overdue
+item and a couple already ticked off) and **Apartment**. The home page opens
+with **"New since you last looked"** already filled in: the demo seeds a
+sitting two days ago, and two files in the dataset are stamped within that
+window, so the section is populated on the first load instead of never (a
+brand-new viewer has nothing to compare against — see §5 of `PLAN.md` and
+`src/store/visits.js`).
+
+Nothing is written to `./data` or `config/`. The viewer list, the preview cache
+and `state.json` live in a temp directory that is deleted on Ctrl-C, and the
+session secret and the mock's app password are generated per run. Port 3333 is
+taken? `DEMO_PORT=3334 npm run demo`.
+
+**`demo/dataset.json` is the whole dataset, and it is meant to be edited.**
+Change it, re-run `npm run demo`, and that is what the app shows:
+
+```jsonc
+{
+  "files": {
+    "Biology 101": {                                   // a folder has children
+      "children": {
+        "syllabus.pdf": { "asset": "assets/sample.pdf" },   // bytes from disk,
+        "Week 2.pdf":   { "asset": "assets/sample.pdf",     //   path relative
+                          "lastModified": "-20h" },         //   to this file
+        "reading list.txt": { "text": "Chapter 4\n" }       // typed inline
+      }
+    }
+  },
+  "tasks": [
+    {
+      "displayName": "School",
+      "color": "#1c4f8b",
+      "tasks": [
+        { "summary": "Finish the lab report",
+          "description": "Method, then results",
+          "due": "+2d", "priority": 1, "percent": 40,
+          "subtasks": [ { "summary": "Collect pond samples", "due": "+1d" } ] },
+        { "summary": "Email Professor Ruiz", "completed": "-1d" }
+      ]
+    }
+  ]
+}
+```
+
+Content types are guessed from the extension (override with `"contentType"`).
+Dates — `lastModified`, `due`, `completed` — take an absolute value
+(`"2026-08-12"` or a full ISO timestamp) **or an offset from now**: `"-20h"`,
+`"+2d"`, `"-45m"`. Offsets are why the checked-in dataset is still believable
+next year — nothing is permanently overdue and the recent files stay recent.
+Day offsets mean a calendar day; hour and minute offsets mean a time. Saying
+`"completed"` is enough to mark a task done. The loader
+(`test/mock-nextcloud/dataset.js`) validates as it goes and names the entry it
+choked on, so a typo reads like `files."Biology 101".children."syllabus.pdf":
+asset "assets/nope.pdf" does not exist (looked in …)`.
+
+### Running against a real Nextcloud
 
 ```bash
 npm install          # also builds public/pdfjs/ via the `prepare` script
@@ -319,6 +492,14 @@ canned XML and real sample PNG/JPG/PDF files. The Playwright global setup boots
 that mock and the app together on ephemeral ports, with a throwaway `DATA_DIR`,
 so a run always starts from a cold cache and leaves nothing behind.
 
+The suites use the hand-written fixtures in `test/mock-nextcloud/tree.js` and
+`calendars.js`, which are deliberately full of awkward cases (unicode names, a
+scripted SVG, a recurring task completed as an override). The demo uses the
+JSON loader instead — same mock, friendlier input. `npm test` covers both,
+including one test that boots the demo stack through the very same
+`startDemo()` the script calls, so a demo that has quietly stopped working
+fails CI rather than a live demo.
+
 CI (`.github/workflows/ci.yml`) runs the units, the E2E suite, a
 `docker build`, and a boot smoke test of the built image against dummy
 environment values and `config/viewers.example.json`.
@@ -327,6 +508,7 @@ environment values and `config/viewers.example.json`.
 
 | Command | What it does |
 |---|---|
+| `npm run demo` | The whole app against a fake Nextcloud built from `demo/dataset.json`. No setup. |
 | `npm run hash` | Generate a bcrypt passphrase entry for `config/viewers.json`. |
 | `npm run pdfjs` | Rebuild `public/pdfjs/` from the installed `pdfjs-dist`. |
 

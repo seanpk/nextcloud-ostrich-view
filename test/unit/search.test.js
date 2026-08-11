@@ -181,6 +181,20 @@ test('searchChangedSince: one SEARCH on the DAV endpoint, with base-path hrefs h
   ]);
 });
 
+test('searchChangedSince: an empty multistatus is still zero results, not a failure', async () => {
+  // `propfind` now REFUSES a 207 that describes no resource, because a folder
+  // listing must describe its folder. SEARCH is the other half of that rule:
+  // a bodyless multistatus is its ordinary "nothing has changed" answer, and
+  // must keep sailing straight through.
+  for (const body of [
+    '<?xml version="1.0"?>\n<d:multistatus xmlns:d="DAV:"/>',
+    '<?xml version="1.0"?>\n<d:multistatus xmlns:d="DAV:">\n</d:multistatus>',
+  ]) {
+    const nc = client(async () => xml(body));
+    assert.deepEqual(await searchChangedSince(nc, SINCE), []);
+  }
+});
+
 test('searchChangedSince: a 405 is SearchUnsupportedError, not a page-breaking failure', async () => {
   const nc = client(async () => new Response('nope', { status: 405 }));
 
@@ -364,13 +378,44 @@ test('findChangedSince: a structural refusal is remembered for good', async () =
   }
 });
 
+test('findChangedSince: a login page in front of SEARCH is a refusal, not a bad minute', async () => {
+  // The deployment this exists for: something (a reverse proxy, an SSO front
+  // end, Nextcloud's own login flow) answers SEARCH with a redirect or an HTML
+  // page instead of routing it. That will never become a 207, so re-probing it
+  // costs a doomed request and a warning line on EVERY home load, forever.
+  for (const [status, what] of [
+    [302, 'a redirect to a login page'],
+    [303, 'a see-other to a login page'],
+    [200, 'an HTML login page served with a 200'],
+    [403, 'a front end that refuses SEARCH outright'],
+  ]) {
+    const memo = new Map();
+    const nc = failingSearchClient(() => new Response('<html>Sign in</html>', { status }));
+
+    const { strategy, entries } = await findChangedSince(nc, SINCE, { memo });
+    assert.equal(strategy, 'walk');
+    assert.equal(entries.length, 2, 'the page still gets its section');
+    assert.equal(memo.get(nc.baseUrl), 'walk', `${status} (${what}) should demote this instance`);
+  }
+});
+
 test('findChangedSince: a transient failure walks this once, and re-probes next time', async () => {
   // A proxy restarting, a gateway hiccup, a dropped socket, a body that parsed
   // into nothing usable: none of these say anything about SEARCH support, and
   // demoting on one of them would cost the fast path until the next restart.
+  //
+  // 408 and 429 are the two that are transient DESPITE being under 500, which is
+  // otherwise the line between "answered us on purpose" and "bad minute". Both
+  // are the server saying "not now": it gave up waiting for our request, or we
+  // are asking too often -- which a pull-to-refresh burst on the home page, or a
+  // rate limiter in front of Nextcloud, genuinely produces. Reading either as
+  // "this server has no SEARCH" would trade one busy moment for a permanent walk.
   for (const failure of [
     () => new Response('boom', { status: 500 }),
     () => new Response('bad gateway', { status: 502 }),
+    () => new Response('gateway timeout', { status: 504 }),
+    () => new Response('request timeout', { status: 408 }),
+    () => new Response('slow down', { status: 429 }),
     () => xml('<html>Login</html>'),
     () => {
       throw new Error('ECONNRESET');

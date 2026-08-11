@@ -19,6 +19,23 @@ export const NEW_SINCE_CAP = 20;
  */
 export const NEW_SINCE_CACHE_MAX = 50;
 
+/**
+ * How long a remembered answer stays usable.
+ *
+ * SHORT ON PURPOSE, AND NOT OPTIONAL. The cache key cannot carry this by
+ * itself: `previousVisitStartedAt` only moves when a sitting rotates, and a
+ * sitting only ends after VISIT_WINDOW_MS (six hours) of silence. A viewer who
+ * looks more often than that -- which is exactly what a daily reader does --
+ * would keep producing the same key forever, so without a TTL the first answer
+ * of the sitting would be the only one she ever saw, and a file the owner uploaded
+ * while she was reading would stay invisible for days.
+ *
+ * A minute is long enough to absorb pull-to-refresh (and the double load a
+ * phone browser sometimes makes of one), short enough that coming back to the
+ * tab later genuinely asks Nextcloud again.
+ */
+export const NEW_SINCE_CACHE_TTL_MS = 60_000;
+
 /** Between folder names in the muted label; matches the crumbs' visual grammar. */
 const FOLDER_SEPARATOR = ' › ';
 
@@ -105,18 +122,27 @@ export function buildNewSince(entries, options = {}) {
 }
 
 /**
- * The route's memory of what it last found, keyed by (viewer, previous visit).
+ * The route's memory of what it last found, keyed by (viewer, previous visit)
+ * and held for NEW_SINCE_CACHE_TTL_MS.
  *
  * Mid-sitting, `previousVisitStartedAt` does not move, so every refresh asks
  * Nextcloud the identical question -- and pull-to-refresh is the single most
- * likely thing Mom does on this page. The key changes by itself when the sitting
- * rotates, which is the only moment the answer can change, so nothing here has
- * to be invalidated by hand. Failures are never stored: the caller only calls
- * `set` once it has an answer worth keeping.
+ * likely thing Mom does on this page. Deduplicating that burst is all this is
+ * for, which is why the entries expire: the key is stable for as long as the
+ * SITTING lasts, but the answer is only stable for as long as nobody uploads
+ * anything, and those are not the same span at all. See NEW_SINCE_CACHE_TTL_MS.
  *
- * @param {{max?: number}} [options]
+ * Failures are never stored: the caller only calls `set` once it has an answer
+ * worth keeping.
+ *
+ * @param {{max?: number, ttlMs?: number, now?: () => number}} [options]
+ *   now: clock, injectable so expiry can be tested without waiting a minute.
  */
-export function createNewSinceCache({ max = NEW_SINCE_CACHE_MAX } = {}) {
+export function createNewSinceCache({
+  max = NEW_SINCE_CACHE_MAX,
+  ttlMs = NEW_SINCE_CACHE_TTL_MS,
+  now = Date.now,
+} = {}) {
   // Insertion-ordered, so the oldest key is simply the first one.
   const entries = new Map();
   // A NUL separator cannot occur in a viewer name or an ISO stamp, so no two
@@ -129,13 +155,23 @@ export function createNewSinceCache({ max = NEW_SINCE_CACHE_MAX } = {}) {
     },
 
     get(viewerName, since) {
-      return entries.get(keyFor(viewerName, since));
+      const key = keyFor(viewerName, since);
+      const held = entries.get(key);
+      if (held === undefined) return undefined;
+
+      if (now() - held.storedAt >= ttlMs) {
+        // Stale: drop it rather than leave it to be re-checked on every load,
+        // and let the caller ask Nextcloud the question again.
+        entries.delete(key);
+        return undefined;
+      }
+      return held.value;
     },
 
     set(viewerName, since, value) {
       const key = keyFor(viewerName, since);
       entries.delete(key);
-      entries.set(key, value);
+      entries.set(key, { value, storedAt: now() });
       while (entries.size > max) entries.delete(entries.keys().next().value);
       return value;
     },

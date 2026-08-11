@@ -2,7 +2,6 @@ import { createServer } from 'node:http';
 
 import {
   DEFAULT_TREE,
-  FIXED_LAST_MODIFIED,
   fakeEtag,
   fakeFileId,
   indexByFileId,
@@ -78,7 +77,10 @@ function checkAuth(req, user, password) {
 
 function responseXmlFor(davRoot, relPath, node) {
   const isFolder = node.type === 'folder';
-  const lastModified = isFolder ? FIXED_LAST_MODIFIED : lastModifiedOf(node);
+  // Folders carry a modification time too, and a JSON dataset (dataset.js) may
+  // stamp one. Unstamped nodes -- which is every folder in the fixture tree --
+  // fall back to FIXED_LAST_MODIFIED exactly as before.
+  const lastModified = lastModifiedOf(node);
   const href = `${davRoot}${relPath ? '/' + encodeHref(relPath) : ''}${isFolder ? '/' : ''}`;
   const id = fakeFileId(relPath === '' ? '/' : relPath);
   const etag = fakeEtag(relPath === '' ? '/' : relPath);
@@ -165,14 +167,15 @@ const MAX_BODY_BYTES = 64 * 1024;
  *             stop: () => Promise<void>,
  *             url: () => string,
  *             requests: Array<{method: string, url: string}>,
- *             setTree: (tree: object) => void }}
+ *             setTree: (tree: object) => void,
+ *             setSearchStatus: (status: number|null) => void }}
  */
 export function createMockNextcloud(options = {}) {
   let tree = options.tree ?? DEFAULT_TREE;
   const calendars = options.calendars ?? CALENDAR_FIXTURES;
   const user = options.user ?? TEST_USER;
   const password = options.password ?? TEST_APP_PASSWORD;
-  const searchStatus = options.searchStatus ?? null;
+  let searchStatus = options.searchStatus ?? null;
   const davRoot = davRootFor(user);
   const requests = [];
 
@@ -442,6 +445,14 @@ export function createMockNextcloud(options = {}) {
     requests,
     setTree(next) {
       tree = next;
+    },
+    /**
+     * Change how SEARCH answers, mid-run. `null` runs the real thing again.
+     * Lets one test play "SEARCH was having a bad minute, and then wasn't" --
+     * the case the app's transient/structural distinction exists for.
+     */
+    setSearchStatus(next) {
+      searchStatus = next ?? null;
     },
     url() {
       if (boundPort === null) throw new Error('Mock Nextcloud is not started');

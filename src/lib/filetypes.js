@@ -72,10 +72,19 @@ function normalizeType(raw) {
     .toLowerCase();
 }
 
-function extensionOf(name) {
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0 || dot === name.length - 1) return '';
-  return name.slice(dot + 1).toLowerCase();
+/**
+ * `"cell diagram.PNG"` -> `"png"`; `""` when there is no usable extension (a
+ * dotfile's leading dot and a trailing dot are both "no extension").
+ *
+ * Exported because the mock's dataset loader infers content types the same way,
+ * and two copies of this three-line rule is two chances to disagree about
+ * `archive.tar.gz` or `LICENSE`.
+ */
+export function extensionOf(name) {
+  const text = String(name ?? '');
+  const dot = text.lastIndexOf('.');
+  if (dot <= 0 || dot === text.length - 1) return '';
+  return text.slice(dot + 1).toLowerCase();
 }
 
 /**

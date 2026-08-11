@@ -21,6 +21,12 @@ public/pdfjs/
 # Tests and their tooling are dev-only; the runtime image installs --omit=dev
 # and could not run them anyway.
 test/
+
+# The demo dataset, and the script that serves it. Both are laptop-only, and
+# scripts/demo.js imports test/mock-nextcloud/, which is excluded above -- so
+# shipping it would put a broken import in the image for no benefit.
+demo/
+scripts/demo.js
 playwright.config.js
 playwright/
 playwright-report/
