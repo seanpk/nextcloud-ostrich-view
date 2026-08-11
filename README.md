@@ -1,6 +1,12 @@
-# Nextcloud Ostrich View
+<p align="center">
+  <img src="public/logo-small.png" alt="Nextcloud Ostrich View" width="200">
+</p>
 
-> Keep up with something going on with read-only access and no idea how anything works.
+<h1 align="center">Nextcloud Ostrich View</h1>
+
+<p align="center">
+  <em>Keep up with something going on with read-only access and no idea how anything works.</em>
+</p>
 
 ## What this is
 
@@ -26,6 +32,30 @@ existing Cloudflare tunnel.
 See `PLAN.md` for the design and the reasoning behind it. To see the app itself
 without setting any of this up, `npm install && npm run demo` — §7 explains what
 that gives you.
+
+## What it looks like
+
+Every shot below is a phone-sized capture of `npm run demo` — the real app, the
+real templates, reading `demo/dataset.json` instead of a Nextcloud.
+
+| Home | A folder | A PDF | A task list |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/home.png" width="200" alt="Home page: 'New since you last looked' lists two recently changed files with the folder each lives in, above big Biology 101, Essays and Math 210 folder buttons."> | <img src="docs/screenshots/folder.png" width="200" alt="A Lectures folder listing four files, each a large button with a real thumbnail or a file-type icon and its size."> | <img src="docs/screenshots/pdf.png" width="200" alt="A PDF rendered inline on the page, with the Back button still reachable at the top."> | <img src="docs/screenshots/tasks.png" width="200" alt="The School task list: an overdue item in red, then a task with its due date, note, priority and percent-done."> |
+
+"New since you last looked" is the headline: it names what changed and the
+folder it changed in, so there is no hunting. Files open **in the page** —
+nothing is ever downloaded, and Back is reachable from everywhere.
+
+| A photo | The task lists | Login |
+| --- | --- | --- |
+| <img src="docs/screenshots/photo.png" width="200" alt="A photo opened inline on its own page, with Back and the Files/Tasks toggle above it."> | <img src="docs/screenshots/tasks-home.png" width="200" alt="The Tasks side of the toggle, showing the two shared task lists as large buttons."> | <img src="docs/screenshots/login.png" width="200" alt="The login page: the Ostrich View logo, one 'Your passphrase' field and a large Enter button."> |
+
+Task lists put everything still to do first — subtasks indented under their
+parent, overdue in red — then what was finished, newest first:
+
+<p align="center">
+  <img src="docs/screenshots/tasks-full.png" width="230" alt="The full School task list: a 'Still to do' section with an overdue item, a task with subtasks indented beneath it, then a 'Done' section listing finished tasks newest-first with the date each was finished.">
+</p>
 
 ---
 
@@ -511,6 +541,12 @@ environment values and `config/viewers.example.json`.
 | `npm run demo` | The whole app against a fake Nextcloud built from `demo/dataset.json`. No setup. |
 | `npm run hash` | Generate a bcrypt passphrase entry for `config/viewers.json`. |
 | `npm run pdfjs` | Rebuild `public/pdfjs/` from the installed `pdfjs-dist`. |
+| `npm run screenshots` | Regenerate `docs/screenshots/` (the README pictures) by driving the demo. |
+
+`npm run screenshots` boots the same stack as `npm run demo` and photographs it
+at a phone viewport, so the README cannot drift from the app — re-run it after
+any change to a template or to `demo/dataset.json`. It needs the Playwright
+browsers (`npx playwright install chromium`).
 
 `public/pdfjs/` is generated, gitignored, and rebuilt from scratch each time.
 Do not edit it; the viewer page it contains comes from
