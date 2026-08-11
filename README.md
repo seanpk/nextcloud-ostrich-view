@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="public/logo-small.png" alt="Nextcloud Ostrich View" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
+    <img src="public/logo-small.png" alt="Nextcloud Ostrich View" width="200">
+  </picture>
 </p>
 
 <h1 align="center">Nextcloud Ostrich View</h1>
@@ -38,17 +41,26 @@ that gives you.
 Every shot below is a phone-sized capture of `npm run demo` — the real app, the
 real templates, reading `demo/dataset.json` instead of a Nextcloud.
 
-| Home | A folder | A PDF | A task list |
-| --- | --- | --- | --- |
-| <img src="docs/screenshots/home.png" width="200" alt="Home page: 'New since you last looked' lists two recently changed files with the folder each lives in, above big Biology 101, Essays and Math 210 folder buttons."> | <img src="docs/screenshots/folder.png" width="200" alt="A Lectures folder listing four files, each a large button with a real thumbnail or a file-type icon and its size."> | <img src="docs/screenshots/pdf.png" width="200" alt="A PDF rendered inline on the page, with the Back button still reachable at the top."> | <img src="docs/screenshots/tasks.png" width="200" alt="The School task list: an overdue item in red, then a task with its due date, note, priority and percent-done."> |
+<p align="center">
+  <img src="docs/screenshots/home.png" width="190" alt="Home page: 'New since you last looked' lists two recently changed files with the folder each lives in, above big Biology 101, Essays and Math 210 folder buttons.">
+  <img src="docs/screenshots/folder.png" width="190" alt="A Lectures folder listing four files, each a large button with a real thumbnail or a file-type icon and its size.">
+  <img src="docs/screenshots/pdf.png" width="190" alt="A PDF rendered inline on the page, with the Back button still reachable at the top.">
+  <img src="docs/screenshots/tasks.png" width="190" alt="The School task list: an overdue item in red, then a task with its due date, note, priority and percent-done.">
+</p>
+
+<p align="center"><em>Home · a folder · a PDF, open in the page · a task list</em></p>
 
 "New since you last looked" is the headline: it names what changed and the
 folder it changed in, so there is no hunting. Files open **in the page** —
 nothing is ever downloaded, and Back is reachable from everywhere.
 
-| A photo | The task lists | Login |
-| --- | --- | --- |
-| <img src="docs/screenshots/photo.png" width="200" alt="A photo opened inline on its own page, with Back and the Files/Tasks toggle above it."> | <img src="docs/screenshots/tasks-home.png" width="200" alt="The Tasks side of the toggle, showing the two shared task lists as large buttons."> | <img src="docs/screenshots/login.png" width="200" alt="The login page: the Ostrich View logo, one 'Your passphrase' field and a large Enter button."> |
+<p align="center">
+  <img src="docs/screenshots/photo.png" width="210" alt="A photo opened inline on its own page, with Back and the Files/Tasks toggle above it.">
+  <img src="docs/screenshots/tasks-home.png" width="210" alt="The Tasks side of the toggle, showing the two shared task lists as large buttons.">
+  <img src="docs/screenshots/login.png" width="210" alt="The login page: the Ostrich View logo, one 'Your passphrase' field and a large Enter button.">
+</p>
+
+<p align="center"><em>A photo · the task lists · the one-field login</em></p>
 
 Task lists put everything still to do first — subtasks indented under their
 parent, overdue in red — then what was finished, newest first:
