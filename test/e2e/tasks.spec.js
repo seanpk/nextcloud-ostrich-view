@@ -1,4 +1,5 @@
 import { test, expect, login } from './fixtures.js';
+import { ESSAY_DUE_YMD } from '../mock-nextcloud/calendars.js';
 
 /**
  * The Tasks half of the acceptance walk: toggle across from Files, pick a list,
@@ -86,8 +87,8 @@ test.describe('A task list', () => {
 
     const todo = await page.locator('.section--todo .task__title').allTextContents();
     expect(todo).toEqual([
-      'Write the Café history essay — 日本語 sources', // due Aug 12
-      'Biology lab report', // due Aug 20…
+      'Write the Café history essay — 日本語 sources', // due soonest (+10d)
+      'Biology lab report', // due later (+18d)…
       'Collect pond samples', // …with its two subtasks nested under it
       'Draw the graphs',
       'Read chapter 4', // undated tasks come last
@@ -111,8 +112,22 @@ test.describe('A task list', () => {
   test('an unfinished task is shown in full: when it is due, and the owner’s note', async ({ page }) => {
     const essay = page.locator('.task', { hasText: 'Café history essay' }).first();
 
-    await expect(essay.locator('.task__due')).toContainText(/Due |Was due /);
-    await expect(essay.locator('.task__due')).toContainText('Aug 12');
+    await expect(essay.locator('.task__due')).toContainText(/Due /);
+    // The fixture's due date is a dynamic offset (see calendars.js); compute
+    // the same "Mon D" the app renders (date-only dues are formatted in UTC).
+    const dueDay = new Date(
+      Date.UTC(
+        Number(ESSAY_DUE_YMD.slice(0, 4)),
+        Number(ESSAY_DUE_YMD.slice(4, 6)) - 1,
+        Number(ESSAY_DUE_YMD.slice(6, 8))
+      )
+    );
+    const expected = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).format(dueDay);
+    await expect(essay.locator('.task__due')).toContainText(expected);
 
     const note = essay.locator('.task__note');
     await expect(note).toContainText('Outline the argument');

@@ -65,6 +65,24 @@ export const RECURRING_TODO = icsResource([
   ],
 ]);
 
+/**
+ * Open-task due dates are DYNAMIC: offsets from the local today. Fixed dates
+ * here are time bombs — the e2e spec asserts the essay's dated label ("Due
+ * Tue, Aug 12"), but for the two real-world days when a fixed date reads "Due
+ * today"/"Due tomorrow" the assertion fails (it did, in CI, on 2026-08-11) —
+ * and the school-list ordering (essay before lab report) only holds while the
+ * dates keep their relative distance. Offsets keep both true forever; the
+ * spec computes its label expectation from the exported value.
+ */
+function ymdOffset(days) {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export const ESSAY_DUE_YMD = ymdOffset(10);
+const SAMPLES_DUE_YMD = ymdOffset(16);
+const LAB_DUE_YMD = ymdOffset(18);
+
 const SCHOOL_TODOS = [
   ics([
     'UID:task-essay',
@@ -73,7 +91,7 @@ const SCHOOL_TODOS = [
     // things a naive line-by-line parser gets wrong.
     'DESCRIPTION:Three parts:\\n1. Outline the argument\\n2. First draft\\n3. Pro',
     ' ofread it out loud',
-    'DUE;VALUE=DATE:20260812',
+    `DUE;VALUE=DATE:${ESSAY_DUE_YMD}`,
     'PRIORITY:1',
     'PERCENT-COMPLETE:40',
     'STATUS:NEEDS-ACTION',
@@ -81,13 +99,13 @@ const SCHOOL_TODOS = [
   ics([
     'UID:task-lab',
     'SUMMARY:Biology lab report',
-    'DUE:20260820T210000Z',
+    `DUE:${LAB_DUE_YMD}T210000Z`,
     'STATUS:NEEDS-ACTION',
   ]),
   ics([
     'UID:task-lab-samples',
     'SUMMARY:Collect pond samples',
-    'DUE;VALUE=DATE:20260818',
+    `DUE;VALUE=DATE:${SAMPLES_DUE_YMD}`,
     'RELATED-TO;RELTYPE=PARENT:task-lab',
     'STATUS:NEEDS-ACTION',
   ]),
