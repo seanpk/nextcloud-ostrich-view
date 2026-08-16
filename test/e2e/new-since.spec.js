@@ -90,6 +90,11 @@ test.describe('New since you last looked', () => {
     // The folder buttons are still underneath, unchanged. (Exact: a new-since
     // tile's accessible name now ends with "in Biology 101 › …" too.)
     await expect(page.getByRole('link', { name: 'Biology 101', exact: true })).toBeVisible();
+
+    // Photos/Frog.jpg is stamped just as recently, but it is the account's own
+    // skeleton content (see test/mock-nextcloud/tree.js), never a real share --
+    // it must not sneak into the one section she is most likely to actually read.
+    await expect(section.locator('.tile__name', { hasText: 'Frog.jpg' })).toHaveCount(0);
   });
 
   test('the new photo shows a real thumbnail, and the PDF its icon', async ({ page }) => {

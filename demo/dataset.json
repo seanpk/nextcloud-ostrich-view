@@ -7,6 +7,13 @@
     "(a real file, path relative to this JSON file). `contentType` is guessed",
     "from the extension unless you say otherwise.",
     "",
+    "sharedBy: only on a top-level file/folder -- marks it as something the",
+    "named person actually shared with the viewer account. The home page only",
+    "shows entries carrying it. Documents/Photos/Templates/etc below have no",
+    "sharedBy on purpose: that is the skeleton content a fresh Nextcloud account",
+    "seeds itself with, and the whole point of this dataset entry is to prove",
+    "the app hides it.",
+    "",
     "Dates: absolute (\"2026-08-12\", or a full ISO timestamp) or an offset from",
     "now -- \"-3h\", \"+2d\", \"-45m\". Offsets are what keep this file believable a",
     "year from now, so the two recently-touched files below stay recent and no",
@@ -21,6 +28,7 @@
 
   "files": {
     "Biology 101": {
+      "sharedBy": "liam",
       "lastModified": "-1d",
       "children": {
         "Lectures": {
@@ -63,6 +71,7 @@
     },
 
     "Math 210": {
+      "sharedBy": "liam",
       "lastModified": "-4d",
       "children": {
         "Problem Sets": {
@@ -93,6 +102,7 @@
     },
 
     "Essays": {
+      "sharedBy": "liam",
       "lastModified": "-2d",
       "children": {
         "Café history — outline.txt": {
@@ -104,6 +114,38 @@
           "lastModified": "-16d"
         }
       }
+    },
+
+    "Documents": {
+      "children": {
+        "Example.md": {
+          "text": "# Nextcloud\n\nWelcome to your Nextcloud account.\n"
+        }
+      }
+    },
+    "Photos": {
+      "children": {
+        "Nextcloud community.jpg": {
+          "asset": "assets/sample.jpg",
+          "lastModified": "-2h"
+        }
+      }
+    },
+    "Templates": {
+      "children": {
+        "Readme.md": {
+          "text": "# Readme\n"
+        }
+      }
+    },
+    "Nextcloud.png": {
+      "asset": "assets/sample.png"
+    },
+    "Readme.md": {
+      "text": "# Welcome to Nextcloud\n"
+    },
+    "Nextcloud Manual.pdf": {
+      "asset": "assets/sample.pdf"
     }
   },
 

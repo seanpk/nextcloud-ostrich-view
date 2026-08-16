@@ -2,11 +2,13 @@ import { createServer } from 'node:http';
 
 import {
   DEFAULT_TREE,
+  SHARE_OWNER,
   fakeEtag,
   fakeFileId,
   indexByFileId,
   lastModifiedOf,
   resolveNode,
+  shareOwnerOf,
   walkFiles,
 } from './tree.js';
 import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
@@ -75,7 +77,31 @@ function checkAuth(req, user, password) {
   return decoded.slice(0, separator) === user && decoded.slice(separator + 1) === password;
 }
 
-function responseXmlFor(davRoot, relPath, node) {
+/**
+ * The `oc:owner-id` this response should report, or null when the answer is
+ * "the account's own content, no signal to give". Mirrors real Nextcloud:
+ * the root itself is never a share of itself, and everything else inherits
+ * its top-level entry's `sharedBy` when a live `tree` is available.
+ *
+ * Direct `buildMultistatus`/`buildSearchMultistatus` callers that don't pass
+ * `tree` (most of the existing unit tests) get the pre-M5 behaviour instead:
+ * every non-root response is a share, owned by `shareOwner`. That is what
+ * keeps those tests passing unchanged now that the props exist at all.
+ */
+function ownerIdFor(relPath, { tree, shareOwner, user }) {
+  if (relPath === '') return null;
+  if (tree) return shareOwnerOf(tree, relPath);
+  return shareOwner ?? user;
+}
+
+/**
+ * @param {{user: string, ownerId: string|null, shareProps: boolean}} share
+ *   ownerId: null means "the account's own content" -- reported as the
+ *   account itself, with no S/M permission letter. shareProps: false omits
+ *   both properties from the 200 propstat and lists them as 404 instead, the
+ *   way a Nextcloud that doesn't know them at all would answer.
+ */
+function responseXmlFor(davRoot, relPath, node, { user, ownerId = null, shareProps = true } = {}) {
   const isFolder = node.type === 'folder';
   // Folders carry a modification time too, and a JSON dataset (dataset.js) may
   // stamp one. Unstamped nodes -- which is every folder in the fixture tree --
@@ -93,9 +119,25 @@ function responseXmlFor(davRoot, relPath, node) {
     ? ''
     : `<d:getcontenttype>${xmlEscape(node.contentType ?? 'application/octet-stream')}</d:getcontenttype>`;
 
-  const notFoundBlock = isFolder
+  const effectiveOwnerId = ownerId ?? user;
+  const permissions = isFolder
+    ? `${ownerId ? 'S' : ''}RGDNVCK`
+    : `${ownerId ? 'S' : ''}RGDNVW`;
+  const shareProp = shareProps
+    ? `<oc:permissions>${permissions}</oc:permissions>
+          <oc:owner-id>${xmlEscape(effectiveOwnerId)}</oc:owner-id>`
+    : '';
+
+  // Not-found props for this response, all in the one 404 propstat a real
+  // server would use -- getcontenttype for a collection, and/or the share
+  // props when the caller is simulating a Nextcloud that doesn't know them.
+  const notFoundProps = [
+    ...(isFolder ? ['<d:getcontenttype/>'] : []),
+    ...(shareProps ? [] : ['<oc:permissions/>', '<oc:owner-id/>']),
+  ];
+  const notFoundBlock = notFoundProps.length
     ? `      <d:propstat>
-        <d:prop><d:getcontenttype/></d:prop>
+        <d:prop>${notFoundProps.join('')}</d:prop>
         <d:status>HTTP/1.1 404 Not Found</d:status>
       </d:propstat>
 `
@@ -111,6 +153,7 @@ function responseXmlFor(davRoot, relPath, node) {
           <d:resourcetype>${resourcetype}</d:resourcetype>
           <oc:size>${size}</oc:size>
           <d:getetag>&quot;${etag}&quot;</d:getetag>
+          ${shareProp}
         </d:prop>
         <d:status>HTTP/1.1 200 OK</d:status>
       </d:propstat>
@@ -121,14 +164,41 @@ ${notFoundBlock}    </d:response>`;
  * Build a 207 multistatus body for a Depth-1 PROPFIND.
  * The first entry is always the collection itself -- exactly the thing the
  * parser has to skip.
+ *
+ * @param {{davRoot: string, relPath: string, node: object, tree?: object|null,
+ *           shareOwner?: string, shareProps?: boolean, user?: string}} options
+ *   tree: the live fixture tree, used to look up each entry's real `sharedBy`
+ *     via shareOwnerOf(). Omit it (as most direct unit-test callers do) to
+ *     get the simpler "everything is a share" behaviour via `shareOwner`.
  */
-export function buildMultistatus({ davRoot, relPath, node }) {
-  const parts = [responseXmlFor(davRoot, relPath, node)];
+export function buildMultistatus({
+  davRoot,
+  relPath,
+  node,
+  tree = null,
+  shareOwner = SHARE_OWNER,
+  shareProps = true,
+  user = TEST_USER,
+}) {
+  const share = { tree, shareOwner, user };
+  const parts = [
+    responseXmlFor(davRoot, relPath, node, {
+      user,
+      shareProps,
+      ownerId: ownerIdFor(relPath, share),
+    }),
+  ];
 
   if (node.type === 'folder') {
     for (const [name, child] of Object.entries(node.children ?? {})) {
       const childPath = relPath === '' ? name : `${relPath}/${name}`;
-      parts.push(responseXmlFor(davRoot, childPath, child));
+      parts.push(
+        responseXmlFor(davRoot, childPath, child, {
+          user,
+          shareProps,
+          ownerId: ownerIdFor(childPath, share),
+        })
+      );
     }
   }
 
@@ -148,10 +218,24 @@ ${parts.join('\n')}
  * particular relationship between them -- which is exactly the shape the app's
  * parser has to cope with when it reuses `parseMultistatus` for search results.
  *
- * @param {{davRoot: string, files: Array<{path: string, node: object}>}} options
+ * @param {{davRoot: string, files: Array<{path: string, node: object}>,
+ *           tree?: object|null, shareOwner?: string, shareProps?: boolean,
+ *           user?: string}} options see buildMultistatus for `tree`/`shareOwner`.
  */
-export function buildSearchMultistatus({ davRoot, files }) {
-  return wrapMultistatus(files.map(({ path, node }) => responseXmlFor(davRoot, path, node)));
+export function buildSearchMultistatus({
+  davRoot,
+  files,
+  tree = null,
+  shareOwner = SHARE_OWNER,
+  shareProps = true,
+  user = TEST_USER,
+}) {
+  const share = { tree, shareOwner, user };
+  return wrapMultistatus(
+    files.map(({ path, node }) =>
+      responseXmlFor(davRoot, path, node, { user, shareProps, ownerId: ownerIdFor(path, share) })
+    )
+  );
 }
 
 /** Nothing this mock is asked to accept is anywhere near this big. */
@@ -159,10 +243,13 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string,
- *           searchStatus?: number|null }} [options]
+ *           searchStatus?: number|null, shareProps?: boolean }} [options]
  *   searchStatus: answer every SEARCH with this status instead of running it.
  *   405 is what a Nextcloud without the search backend sends, and is the case
  *   the app's walk fallback exists for.
+ *   shareProps: false simulates a Nextcloud that doesn't know oc:permissions
+ *   or oc:owner-id at all (both come back 404'd) -- the case
+ *   src/nextcloud/shares.js's no-signal fallback exists for. Default true.
  * @returns {{ start: () => Promise<{url: string, port: number}>,
  *             stop: () => Promise<void>,
  *             url: () => string,
@@ -176,6 +263,7 @@ export function createMockNextcloud(options = {}) {
   const user = options.user ?? TEST_USER;
   const password = options.password ?? TEST_APP_PASSWORD;
   let searchStatus = options.searchStatus ?? null;
+  let shareProps = options.shareProps ?? true;
   const davRoot = davRootFor(user);
   const requests = [];
 
@@ -290,7 +378,15 @@ export function createMockNextcloud(options = {}) {
       .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 50);
 
     res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
-    res.end(buildSearchMultistatus({ davRoot: davRoot.replace(/\/+$/, ''), files: matches }));
+    res.end(
+      buildSearchMultistatus({
+        davRoot: davRoot.replace(/\/+$/, ''),
+        files: matches,
+        tree,
+        shareProps,
+        user,
+      })
+    );
   }
 
   /**
@@ -423,7 +519,7 @@ export function createMockNextcloud(options = {}) {
 
     if (node.type !== 'folder') {
       // Depth-1 on a file is legal and returns just the file itself.
-      const xml = buildMultistatus({ davRoot: rootNormalized, relPath, node });
+      const xml = buildMultistatus({ davRoot: rootNormalized, relPath, node, tree, shareProps, user });
       res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
       res.end(xml);
       return;
@@ -434,6 +530,9 @@ export function createMockNextcloud(options = {}) {
       davRoot: rootNormalized,
       relPath,
       node: depth === '0' ? { ...node, children: {} } : node,
+      tree,
+      shareProps,
+      user,
     });
     res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
     res.end(xml);
@@ -453,6 +552,10 @@ export function createMockNextcloud(options = {}) {
      */
     setSearchStatus(next) {
       searchStatus = next ?? null;
+    },
+    /** false simulates a Nextcloud with no oc:permissions/oc:owner-id at all. */
+    setShareProps(next) {
+      shareProps = next ?? true;
     },
     url() {
       if (boundPort === null) throw new Error('Mock Nextcloud is not started');

@@ -76,8 +76,18 @@ test('parsePropfind: maps every requested property onto the entry', () => {
       lastModified: '2025-08-07T14:45:12.000Z',
       contentType: 'image/png',
       size: 44210,
+      permissions: 'SRGDNVCK',
+      ownerId: 'liam',
     }
   );
+});
+
+test('parsePropfind: a 404 on permissions/owner-id maps to null, not an empty string', () => {
+  const entries = parseFixture();
+  const pdf = entries.find((e) => e.name === 'Café résumé.pdf');
+
+  assert.equal(pdf.permissions, null);
+  assert.equal(pdf.ownerId, null);
 });
 
 test('parsePropfind: folders report no content type even when the server 404s the prop', () => {
@@ -104,7 +114,7 @@ test('parsePropfind: handles the root listing, where the self entry is the root 
   assert.ok(entries.every((e) => !e.path.includes('/')), 'root children are single-segment paths');
   assert.deepEqual(
     entries.map((e) => e.name).sort(),
-    ['Biology 101', 'Café Notes', 'Math 210', 'welcome.txt'].sort()
+    Object.keys(DEFAULT_TREE).sort()
   );
 });
 

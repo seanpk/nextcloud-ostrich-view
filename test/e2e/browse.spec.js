@@ -112,4 +112,31 @@ test.describe('Browsing folders', () => {
     await page.goto('/files');
     await expect(page).toHaveURL(/\/$/);
   });
+
+  test('the home page shows only what was shared, never the account\'s own skeleton content', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    for (const shared of ['Biology 101', 'Math 210', 'Café Notes']) {
+      await expect(page.getByRole('link', { name: shared })).toBeVisible();
+    }
+
+    // Documents/Photos/Templates and friends are what a freshly created
+    // Nextcloud account seeds itself with (see test/mock-nextcloud/tree.js) --
+    // never something the owner shared, so they must never appear as tiles.
+    for (const skeleton of [
+      'Documents',
+      'Photos',
+      'Templates',
+      'Nextcloud.png',
+      'Readme.md',
+      'Nextcloud Manual.pdf',
+    ]) {
+      await expect(page.locator('.tile__name', { hasText: skeleton })).toHaveCount(0);
+    }
+
+    // Folders (3 shares) + welcome.txt (a shared single file) -- nothing more.
+    await expect(page.locator('.tiles__item')).toHaveCount(4);
+  });
 });

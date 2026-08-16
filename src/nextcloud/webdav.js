@@ -12,6 +12,9 @@ import { encodePath, normalizeRelPath } from '../lib/paths.js';
  * XML with no server in sight.
  */
 
+// oc:permissions and oc:owner-id ride along on every listing -- they cost
+// nothing extra (same round trip) and are what ../nextcloud/shares.js reads
+// to tell a received share apart from the viewer account's own content.
 const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
   <d:prop>
@@ -21,6 +24,8 @@ const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
     <d:resourcetype/>
     <oc:size/>
     <d:getetag/>
+    <oc:permissions/>
+    <oc:owner-id/>
   </d:prop>
 </d:propfind>`;
 
@@ -50,6 +55,12 @@ function toDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** '' and missing both mean "the server didn't tell us" -- normalize both to null. */
+function toStringOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return String(value);
+}
+
 /**
  * Is this response a collection? `<d:resourcetype><d:collection/></d:resourcetype>`
  * parses to `{ collection: '' }`; a plain file's empty resourcetype parses to ''.
@@ -74,6 +85,11 @@ function toEntry(relPath, props) {
     lastModified: toDate(props.getlastmodified),
     contentType: folder ? null : props.getcontenttype || null,
     size: toNumber(props.size),
+    // Read by ../nextcloud/shares.js to tell a received share apart from the
+    // viewer account's own content. removeNSPrefix hands us `owner-id`
+    // hyphenated, not camelCased.
+    permissions: toStringOrNull(props.permissions),
+    ownerId: toStringOrNull(props['owner-id']),
   };
 }
 

@@ -7,7 +7,10 @@ import { join } from 'node:path';
  *
  * Shaped like what the owner would actually share: a couple of course folders, a
  * nested sub-folder, a unicode name and a name with spaces (the two things that
- * break naive URL handling), plus the file types the viewer previews.
+ * break naive URL handling), plus the file types the viewer previews -- and,
+ * alongside them, the unmarked skeleton content (`Documents`, `Photos`, etc.)
+ * a freshly created Nextcloud account seeds itself with, which the app must
+ * never show. See `sharedBy` / `shareOwnerOf` below.
  *
  * Every file carries real `bytes` (see assets/, and assets/generate.mjs for how
  * they were made), so `/content/*` and the pdf.js viewer are exercised against
@@ -68,9 +71,16 @@ export const FIXED_LAST_MODIFIED = 'Mon, 04 Aug 2025 09:15:00 GMT';
 export const RECENT_LAST_MODIFIED = 'Wed, 06 Aug 2025 18:30:00 GMT';
 export const NEWEST_LAST_MODIFIED = 'Thu, 07 Aug 2025 07:05:00 GMT';
 
+/** The (fictional) owner who shares folders with the viewer account. */
+export const SHARE_OWNER = 'liam';
+
 export const DEFAULT_TREE = {
   'Biology 101': {
     type: 'folder',
+    // Every top-level node the owner actually shared carries `sharedBy` --
+    // see shareOwnerOf() below, and ../../src/nextcloud/shares.js, which is
+    // what reads this signal (as oc:owner-id / oc:permissions) in the real app.
+    sharedBy: SHARE_OWNER,
     children: {
       Lectures: {
         type: 'folder',
@@ -96,6 +106,7 @@ export const DEFAULT_TREE = {
   },
   'Math 210': {
     type: 'folder',
+    sharedBy: SHARE_OWNER,
     children: {
       'Problem Sets': {
         type: 'folder',
@@ -109,11 +120,46 @@ export const DEFAULT_TREE = {
   'Café Notes': {
     // Deliberately unicode + accented: exercises percent-encoding end to end.
     type: 'folder',
+    sharedBy: SHARE_OWNER,
     children: {
       'résumé draft.pdf': pdf(),
     },
   },
-  'welcome.txt': file('text/plain', Buffer.from('Hello from the mock Nextcloud.\n', 'utf8')),
+  'welcome.txt': file('text/plain', Buffer.from('Hello from the mock Nextcloud.\n', 'utf8'), {
+    sharedBy: SHARE_OWNER,
+  }),
+
+  // Nextcloud seeds a brand-new account with content like this the first time
+  // it logs in (README §1 step 2 requires that login) -- unmarked (no
+  // `sharedBy`), exactly as the account's own storage would be. The app is
+  // expected to hide all of it from the home page; see shares.test.js and
+  // home-route.test.js.
+  Documents: {
+    type: 'folder',
+    children: {
+      'Example.md': file('text/markdown', Buffer.from('# Nextcloud\n', 'utf8')),
+    },
+  },
+  Photos: {
+    type: 'folder',
+    children: {
+      // Recent on purpose: proves skeleton content is kept out of "New since
+      // you last looked" too, not just out of the folder grid.
+      'Frog.jpg': jpg({ lastModified: NEWEST_LAST_MODIFIED }),
+    },
+  },
+  Templates: {
+    type: 'folder',
+    children: {
+      'Letter.odt': file(
+        'application/vnd.oasis.opendocument.text',
+        Buffer.from('placeholder', 'utf8')
+      ),
+    },
+  },
+  'Nextcloud.png': png(),
+  'Readme.md': file('text/markdown', Buffer.from('# Welcome\n', 'utf8')),
+  'Nextcloud Manual.pdf': pdf(),
 };
 
 /**
@@ -134,6 +180,25 @@ export function indexByFileId(tree) {
   };
   walk(tree, '');
   return index;
+}
+
+/**
+ * The uid of the share `relPath` lives in, or null for the account's own
+ * content. Ownership is set once, on the top-level entry, and inherited by
+ * everything under it -- there is no per-subfolder override, matching how a
+ * real Nextcloud share works (you share the folder, not each file in it).
+ *
+ * `''` (the root itself) is always null: the root is the account's own DAV
+ * home, never a share of itself.
+ *
+ * @param {object} tree
+ * @param {string} relPath decoded, e.g. "Biology 101/Lectures"
+ * @returns {string|null}
+ */
+export function shareOwnerOf(tree, relPath) {
+  if (!relPath) return null;
+  const top = relPath.split('/')[0];
+  return tree?.[top]?.sharedBy ?? null;
 }
 
 /**

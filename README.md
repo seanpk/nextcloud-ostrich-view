@@ -82,7 +82,11 @@ ordinary Nextcloud sharing.
 
 2. **Log in as `ostrich-viewer` once.** Nextcloud does not finish provisioning
    an account (skeleton files, calendar home) until its first login, and the
-   app's task discovery needs the calendar home to exist.
+   app's task discovery needs the calendar home to exist. That first login is
+   also what seeds `Documents`, `Photos`, `Templates` and a couple of sample
+   files in the account's own storage — leave them. The home page shows only
+   what has been shared **with** the account, not what it happens to own, so
+   this skeleton content never reaches the page (see `src/nextcloud/shares.js`).
 
 3. **Generate an app password.** While logged in as `ostrich-viewer`:
    Settings → Security → *Devices & sessions* → "Create new app password", name
@@ -487,6 +491,12 @@ sitting two days ago, and two files in the dataset are stamped within that
 window, so the section is populated on the first load instead of never (a
 brand-new viewer has nothing to compare against — see §5 of `PLAN.md` and
 `src/store/visits.js`).
+
+The dataset also seeds `Documents`, `Photos`, `Templates` and a few sample
+files — exactly the skeleton content a freshly created Nextcloud account gets
+on its first login — deliberately **not** marked as shared, so the demo shows
+off the home page hiding them. Only entries with `"sharedBy"` set in
+`demo/dataset.json` become folder buttons.
 
 Nothing is written to `./data` or `config/`. The viewer list, the preview cache
 and `state.json` live in a temp directory that is deleted on Ctrl-C, and the

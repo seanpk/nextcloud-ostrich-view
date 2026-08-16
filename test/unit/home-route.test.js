@@ -10,7 +10,12 @@ import { loadConfig } from '../../src/config.js';
 import { createNewSinceCache } from '../../src/lib/new-since.js';
 import { WALK_MAX_DEPTH } from '../../src/nextcloud/search.js';
 import { createMockNextcloud, TEST_APP_PASSWORD, TEST_USER } from '../mock-nextcloud/index.js';
-import { DEFAULT_TREE, NEWEST_LAST_MODIFIED, resolveNode } from '../mock-nextcloud/tree.js';
+import {
+  DEFAULT_TREE,
+  NEWEST_LAST_MODIFIED,
+  SHARE_OWNER,
+  resolveNode,
+} from '../mock-nextcloud/tree.js';
 
 /**
  * The home route, wired the way it really is: real store, real search, a mock
@@ -229,7 +234,10 @@ function treeWithBuriedUpload() {
   for (let i = 0; i < WALK_MAX_DEPTH; i += 1) {
     node = { type: 'folder', children: { [`level ${i}`]: node } };
   }
-  return { ...DEFAULT_TREE, Deep: node };
+  // Marked as shared like every other real top-level entry -- otherwise the
+  // walk fallback prunes it as skeleton content before ever reaching the
+  // depth this test exists to hit. See src/nextcloud/shares.js.
+  return { ...DEFAULT_TREE, Deep: { ...node, sharedBy: SHARE_OWNER } };
 }
 
 test('home: on an instance that has settled on the walk, a truncated answer IS cached', async () => {
@@ -291,4 +299,60 @@ test('home: a truncated answer from a one-off walk is not cached, so SEARCH repl
   assert.equal(healthy.statusCode, 200);
   assert.match(healthy.body, /buried notes\.pdf/, 'the full answer replaces the degraded one');
   assert.doesNotMatch(healthy.body, /and more besides/);
+});
+
+// --- Share-only home (M5) ---------------------------------------------------
+
+test('home: only received shares become folder buttons; the account\'s own content does not', async () => {
+  const dir = dataDir();
+  const { url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  assert.equal(response.statusCode, 200);
+
+  for (const shared of ['Biology 101', 'Math 210', 'Café Notes']) {
+    assert.match(response.body, new RegExp(shared));
+  }
+  for (const skeleton of ['Documents', 'Photos', 'Templates', 'Nextcloud.png', 'Readme.md']) {
+    assert.doesNotMatch(response.body, new RegExp(skeleton), `${skeleton} is the account's own content`);
+  }
+});
+
+test('home: a Nextcloud that sends no share signal at all falls back to showing everything', async () => {
+  // shareProps: false -- oc:permissions and oc:owner-id come back 404'd on
+  // every entry, the way an old or unusual Nextcloud might. Rather than
+  // guessing wrong and hiding real shares, the page must render exactly as it
+  // did before this feature existed.
+  const dir = dataDir();
+  const { url } = await bootMock({ shareProps: false });
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  assert.equal(response.statusCode, 200);
+
+  for (const name of ['Biology 101', 'Math 210', 'Café Notes', 'Documents', 'Photos', 'Templates']) {
+    assert.match(response.body, new RegExp(name), `${name} must still show up with no share signal at all`);
+  }
+});
+
+test('home: a viewer account with nothing actually shared sees the friendly empty message', async () => {
+  const skeletonOnly = Object.fromEntries(
+    Object.entries(DEFAULT_TREE).filter(([, node]) => !node.sharedBy)
+  );
+  assert.ok(Object.keys(skeletonOnly).length > 0, 'the fixture must still have skeleton entries to test with');
+
+  const dir = dataDir();
+  const { url } = await bootMock({ tree: skeletonOnly });
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Nothing has been shared with you yet\./);
+  for (const skeleton of Object.keys(skeletonOnly)) {
+    assert.doesNotMatch(response.body, new RegExp(skeleton));
+  }
 });

@@ -1,5 +1,6 @@
 import { propfind, sortEntries } from '../nextcloud/webdav.js';
 import { findChangedSince, SEARCH_LIMIT } from '../nextcloud/search.js';
+import { selectReceivedShares } from '../nextcloud/shares.js';
 import { toTiles } from '../lib/tiles.js';
 import { buildNewSince, formatVisitLabel, NEW_SINCE_CAP } from '../lib/new-since.js';
 
@@ -11,6 +12,12 @@ import { buildNewSince, formatVisitLabel, NEW_SINCE_CAP } from '../lib/new-since
  *  - "New since you last looked" -- whatever changed since this viewer's
  *    PREVIOUS sitting (see src/store/visits.js for why "previous" and not "last
  *    page load").
+ *
+ * "The top level of everything SHARED with the viewer account" is filtered,
+ * not assumed: the account's files home also holds whatever Nextcloud seeded
+ * it with on first login (README §1 step 2 requires that login), and the
+ * viewer must never see that. See ../nextcloud/shares.js for how a received
+ * share is told apart from the account's own content.
  *
  * The new-since half is strictly a bonus. Working out the visit, searching, and
  * building the tiles all happen inside one try/catch: if Nextcloud won't do
@@ -28,6 +35,10 @@ export default async function registerHomeRoutes(app) {
   // Built in server.js, one per app instance, so tests get a fresh one with the
   // server -- and can hand in one with a short TTL and a fake clock.
   const changeCache = app.newSinceCache;
+
+  // Logged at most once per process: see the sawSignal branch below. A page
+  // refreshed all day must not repeat the same warning on every load.
+  let warnedNoShareSignal = false;
 
   /**
    * Advance the visit and work out what to show above the folders.
@@ -128,7 +139,24 @@ export default async function registerHomeRoutes(app) {
     // its own write failures, so this cannot fail the page either.
     await newSince.commit?.();
 
-    const tiles = toTiles(sortEntries(entries));
+    // Only the root listing is filtered: a sub-folder is inside a share by
+    // construction, so there is nothing left to tell apart once you're in one.
+    // `sawSignal` false means Nextcloud sent neither oc:permissions nor
+    // oc:owner-id on ANY entry -- an odd or very old server -- in which case
+    // every entry survived unfiltered and the page is exactly what it was
+    // before this existed, aside from the one warning below.
+    const { entries: shared, sawSignal } = selectReceivedShares(entries, {
+      user: app.nextcloud.user,
+    });
+    if (!sawSignal && entries.length > 0 && !warnedNoShareSignal) {
+      warnedNoShareSignal = true;
+      request.log.warn(
+        'Nextcloud returned no oc:permissions or oc:owner-id for the files home; ' +
+          'showing every top-level entry, skeleton content included.'
+      );
+    }
+
+    const tiles = toTiles(sortEntries(shared));
 
     return reply.view('home', {
       title: 'Shared files',

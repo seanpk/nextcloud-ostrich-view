@@ -1,4 +1,5 @@
 import { parseMultistatus, propfind } from './webdav.js';
+import { shareSignal } from './shares.js';
 
 /**
  * "What changed since she last looked?"
@@ -158,6 +159,13 @@ function newestFirst(entries) {
  * and a server that mis-parsed our literal would otherwise return the entire
  * tree as "new".
  *
+ * Deliberately UNFILTERED with respect to shares: Nextcloud's SEARCH matches
+ * anything under the scope regardless of who owns it, so a result here can be
+ * the viewer account's own (skeleton) content just as easily as a real share.
+ * `searchChangedSince` is where that gets filtered out, because that is the
+ * one place both routes into this data (SEARCH and, separately, the walk in
+ * `walkChangedSince`) can be held to the same rule with the `client` in hand.
+ *
  * @param {string} xml raw 207 body
  * @param {{davRoot: string, since: Date|number, limit?: number}} options
  * @returns {Array<object>} parseMultistatus entry shape, files only
@@ -199,11 +207,19 @@ export async function searchChangedSince(client, since, { limit = SEARCH_LIMIT }
     });
   }
 
-  return parseSearchResults(await response.text(), {
+  const entries = parseSearchResults(await response.text(), {
     davRoot: client.davRoot,
     since,
     limit,
   });
+
+  // The one place SEARCH results get told apart from the viewer account's own
+  // (skeleton) content -- see shareSignal's doc comment for why unknown is
+  // kept. Applied after the limit slice in parseSearchResults, so in the
+  // pathological case where the newest `limit` changes are mostly skeleton
+  // noise, fewer than `limit` real results come back; SEARCH_LIMIT (50) vs.
+  // the 20 actually shown leaves comfortable room in the ordinary case.
+  return entries.filter((entry) => shareSignal(entry, { user: client.user }) !== false);
 }
 
 /**
@@ -257,6 +273,14 @@ export async function walkChangedSince(client, since, options = {}) {
 
     for (const { depth, entries } of listings) {
       for (const entry of entries) {
+        // Only the root's own children can be told apart as "the viewer
+        // account's own content" at all (see ./shares.js) -- anything a real
+        // share carries that verdict all the way down, so this is enough to
+        // never even PROPFIND a Documents/Photos/Templates subtree, not just
+        // to hide it once fetched. `!== false` keeps an unknown verdict in,
+        // same rule as everywhere else this signal is read.
+        if (depth === 0 && shareSignal(entry, { user: client.user }) === false) continue;
+
         if (entry.isFolder) {
           if (depth + 1 <= maxDepth) queue.push({ path: entry.path, depth: depth + 1 });
           else truncated = true;
