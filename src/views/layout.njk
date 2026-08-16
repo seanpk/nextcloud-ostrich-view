@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light" />
     <title>{{ title }} · Ostrich View</title>
-    <link rel="stylesheet" href="/public/styles.css" />
+    <link rel="stylesheet" href="/public/styles.css?v={{ appVersion }}" />
     <link rel="icon" href="/public/icons/folder.svg" type="image/svg+xml" />
     {# Pages that need something of their own in <head>; only the upstream-down
        page uses it, for its self-retry meta refresh. #}
     {% block head %}{% endblock %}
   </head>
-  <body>
+  <body class="{{ 'is-viewer' if immersive }}">
     {#
       The top bar is fixed so the Back button is reachable from anywhere on the
       page without scrolling. It is hidden only on home and login, where there
@@ -59,18 +59,26 @@
         </nav>
       {% endif %}
 
-      <h1 class="page__title">{% block heading %}{{ title }}{% endblock %}</h1>
+      {#
+        Immersive (full-screen photo/PDF) pages keep the heading in the DOM --
+        it is still the document's title, and public/viewer.js's status line
+        refers back to it -- but hidden visually, since the filename already
+        rides along on the image's alt text / the PDF iframe's title.
+      #}
+      <h1 class="page__title {{ 'visually-hidden' if immersive }}">{% block heading %}{{ title }}{% endblock %}</h1>
 
       {% block content %}{% endblock %}
     </main>
 
-    <footer class="footer">
-      {% if viewer %}
-        <form class="footer__form" method="post" action="/logout">
-          <button class="footer__logout" type="submit">Sign out</button>
-        </form>
-      {% endif %}
-    </footer>
+    {% if not immersive %}
+      <footer class="footer">
+        {% if viewer %}
+          <form class="footer__form" method="post" action="/logout">
+            <button class="footer__logout" type="submit">Sign out</button>
+          </form>
+        {% endif %}
+      </footer>
+    {% endif %}
 
     {# Pages that ship a bit of progressive-enhancement JS add their <script> here. #}
     {% block scripts %}{% endblock %}

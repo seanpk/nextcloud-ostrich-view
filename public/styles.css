@@ -26,6 +26,36 @@
   --topbar-h: 4.5rem;
   --radius: 14px;
   --tap: 3.5rem; /* 56px minimum for anything tappable */
+
+  /* The viewer's own bottom bar (the full-screen toggle), and the total
+     chrome height a /view/ page has to leave room for -- topbar + safe-area
+     inset + this bar + a little breathing room. Immersive mode collapses
+     this back to 0 (see the Fullscreen viewer section below). */
+  --viewer-bar-h: 4.5rem;
+  --viewer-chrome: calc(
+    var(--topbar-h) + env(safe-area-inset-top, 0px) + var(--viewer-bar-h) + 1.6rem
+  );
+}
+
+/* [hidden] is the progressive-enhancement gate on every JS-only control
+   (the password reveal, the full-screen button): with the script absent, the
+   attribute never comes off and the control never shows. .btn's own
+   `display: inline-flex` would otherwise beat the UA's [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
+/* Visually hidden but still reachable by a screen reader -- used for the
+   viewer's status announcements and its heading once immersive. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 *,
@@ -354,27 +384,53 @@ a.tile:focus-visible {
 
 /* ---------- Inline viewer (/view/*) ---------- */
 
+/* A viewer page (photo or PDF) reclaims the margin an ordinary page keeps for
+   body text -- there is no paragraph competing with the document for width. */
+.is-viewer .page {
+  max-width: 64rem;
+  padding-inline: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
 .viewer {
   margin: 0;
+}
+
+/*
+ * The whole photo fits on screen at once, scaled to fill the space (up as
+ * well as down) -- nothing scrolls, so a tap unambiguously means "toggle the
+ * chrome" rather than "was that a scroll or a tap". Pinch-zoom (never
+ * disabled; see the viewport meta tag) is how she reads fine print on a
+ * photographed page. Same shape as .viewer--pdf/.viewer__pdf below: the
+ * figure gets the box, the media inside it fills that box via object-fit.
+ */
+.viewer--image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(100dvh - var(--viewer-chrome));
+  min-height: 16rem;
 }
 
 .viewer__image {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
   border: 2px solid var(--line);
   border-radius: var(--radius);
   background: var(--card);
 }
 
 /*
- * The PDF frame takes whatever height is left below the top bar and title.
- * `dvh` keeps it honest on phones, where the browser chrome comes and goes;
- * the min-height stops it collapsing to nothing in a short landscape window.
+ * The PDF frame takes whatever height is left below the top bar and the
+ * viewer's own bottom bar. `dvh` keeps it honest on phones, where the browser
+ * chrome comes and goes; the min-height stops it collapsing to nothing in a
+ * short landscape window.
  */
 .viewer--pdf {
-  height: calc(100dvh - var(--topbar-h) - 9rem);
-  min-height: 20rem;
+  height: calc(100dvh - var(--viewer-chrome));
+  min-height: 16rem;
 }
 
 .viewer__pdf {
@@ -405,6 +461,83 @@ a.tile:focus-visible {
   color: var(--ink-faint);
   overflow-wrap: anywhere;
   margin: 0 0 1.5rem;
+}
+
+/* ---------- Full-screen viewer ---------- */
+
+/*
+ * The bar under the document, holding the full-screen toggle. Same shape in
+ * and out of immersive mode; immersive just pins it to the bottom of the
+ * viewport instead of letting it sit in the page's normal flow.
+ */
+.viewer__bar {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
+/*
+ * `is-immersive` is the one class public/viewer.js ever sets on <body>, and
+ * everything else about full-screen mode follows from it -- the Fullscreen
+ * API (requestFullscreen) is called too, but only as a best-effort extra on
+ * top of this; on a phone it frequently isn't available at all (notably
+ * non-video elements on iOS Safari), so this class is what actually has to
+ * do the work.
+ */
+.is-immersive {
+  --viewer-chrome: 0px;
+  overflow: hidden;
+}
+
+.is-immersive .page {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  max-width: none;
+  padding: 0;
+  background: #0e1013;
+}
+
+/* .viewer--pdf/.viewer--image already read `--viewer-chrome`, which is 0px
+   here, so their height rules resolve to the full viewport without a
+   separate override -- only the border needs dropping, edge to edge. */
+.is-immersive .viewer__pdf,
+.is-immersive .viewer__image {
+  border: 0;
+  border-radius: 0;
+}
+
+/* Above the pinned .page (z-index 40), so Back stays reachable over the
+   document rather than under it. */
+.is-immersive .topbar {
+  z-index: 60;
+  background: rgb(255 255 255 / 0.94);
+}
+
+/* Files/Tasks is noise once she is already looking at one file. */
+.is-immersive .toggle {
+  display: none;
+}
+
+.is-immersive .viewer__bar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 60;
+  margin-top: 0;
+  padding: 0.6rem 0.9rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  background: rgb(255 255 255 / 0.94);
+}
+
+/*
+ * Tapping the document hides both bars. `visibility: hidden`, not just
+ * `opacity: 0` -- hidden chrome must leave the tab order and the
+ * accessibility tree, not merely fade from view.
+ */
+.is-immersive.is-chrome-hidden .topbar,
+.is-immersive.is-chrome-hidden .viewer__bar {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 0s linear 160ms;
 }
 
 /* ---------- Login ---------- */
@@ -510,6 +643,17 @@ a.tile:focus-visible {
 .btn--primary:hover,
 .btn--primary:focus-visible {
   background: var(--accent-dark);
+}
+
+.btn--quiet {
+  background: var(--card);
+  color: var(--accent-dark);
+  border-color: var(--line);
+}
+
+.btn--quiet:hover,
+.btn--quiet:focus-visible {
+  border-color: var(--accent);
 }
 
 .login__submit {

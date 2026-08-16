@@ -36,4 +36,28 @@
       <p><a class="btn btn--primary" href="{{ backHref }}">Back to the folder</a></p>
     </div>
   {% endif %}
+
+  {% if immersive %}
+    {#
+      Hidden until public/viewer.js removes the attribute -- with JS off there
+      is no dead control, just the plain (non-fullscreen) page above.
+    #}
+    <div class="viewer__bar">
+      <button
+        type="button"
+        class="btn btn--quiet viewer__fs"
+        hidden
+        aria-pressed="false"
+        data-enter="Full screen"
+        data-exit="Exit full screen"
+      >Full screen</button>
+    </div>
+    <p class="visually-hidden" role="status" data-viewer-status></p>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if immersive %}
+    <script src="/public/viewer.js?v={{ appVersion }}" defer></script>
+  {% endif %}
 {% endblock %}

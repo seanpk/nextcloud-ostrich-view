@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -25,6 +25,22 @@ import registerTaskRoutes from './routes/tasks.js';
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const VIEWS_DIR = join(HERE, 'views');
 const PUBLIC_DIR = join(HERE, '..', 'public');
+
+/**
+ * Cache-busts `/public/` assets referenced from templates (`?v=`). `/public/`
+ * is served with `maxAge: 7d` in production, so without this a phone that
+ * loaded the page once could run a week-old stylesheet or script against
+ * freshly deployed HTML. Falls back to the current time if package.json is
+ * somehow unreadable, which still cache-busts -- it just also does so on
+ * every restart instead of only on a version bump.
+ */
+const APP_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8')).version ?? String(Date.now());
+  } catch {
+    return String(Date.now());
+  }
+})();
 
 /** Paths reachable without a session. Everything else redirects to /login. */
 const PUBLIC_ROUTES = new Set(['/login', '/healthz']);
@@ -174,6 +190,8 @@ export async function buildApp(options = {}) {
       viewer: null,
       backHref: null,
       breadcrumbs: [],
+      immersive: false,
+      appVersion: APP_VERSION,
     },
   });
 
