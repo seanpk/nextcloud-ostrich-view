@@ -74,16 +74,31 @@ test.describe('Browsing folders', () => {
     await expect(page.getByRole('link', { name: /résumé draft\.pdf/ })).toBeVisible();
   });
 
-  test('PDFs show an icon, not a thumbnail (Nextcloud renders no PDF previews)', async ({ page }) => {
+  test('a PDF tile asks for a preview, same as an image would', async ({ page }) => {
     await page.getByRole('link', { name: 'Biology 101' }).click();
 
     const tile = page.locator('.tiles__item', { hasText: 'syllabus.pdf' });
-    const icon = tile.locator('.tile__icon');
+    const preview = tile.locator('.tile__preview');
 
-    await expect(icon).toHaveAttribute('src', '/public/icons/pdf.svg');
-    // Decorative: the name next to it is what gets read out.
-    await expect(icon).toHaveAttribute('alt', '');
-    await expect(tile.locator('.tile__preview')).toHaveCount(0);
+    await expect(preview).toHaveAttribute('alt', 'Preview of syllabus.pdf');
+    await expect(tile.locator('.tile__icon')).toHaveCount(0);
+
+    // This E2E run's mock Nextcloud doesn't simulate Imaginary, so the
+    // request behind that <img> 404s and the app redirects it to the flat
+    // icon -- the same "no provider" path any unsupported type takes. Real
+    // PDF thumbnails are covered at the unit level (previews.test.js,
+    // tiles.test.js) via `createMockNextcloud({ pdfPreviews: true })`.
+    const src = await preview.getAttribute('src');
+    const response = await page.request.get(src, { maxRedirects: 0 });
+    expect(response.status()).toBe(302);
+    expect(response.headers().location).toBe('/public/icons/pdf.svg');
+
+    // The browser follows that redirect on its own, so the tile still shows
+    // something rather than a broken-image icon.
+    await preview.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() => preview.evaluate((img) => img.naturalWidth), { timeout: 10_000 })
+      .toBeGreaterThan(0);
   });
 
   test('a file we cannot open inline stays a plain label, not a button', async ({ page }) => {

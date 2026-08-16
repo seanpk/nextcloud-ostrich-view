@@ -14,10 +14,12 @@ import { isValidEtag, isValidFileId } from '../nextcloud/previews.js';
  *    link to something the proxy will defang into a download.
  *
  * Only kinds Nextcloud reliably renders a thumbnail for get a `previewUrl`.
- * PDFs deliberately do not: Nextcloud ships with `OC\Preview\PDF` disabled, so
- * every PDF tile would be a round trip that 404s and falls back to the icon
- * anyway. If that provider is ever enabled, add 'pdf' to PREVIEWABLE_KINDS and
- * nothing else needs to change.
+ * PDFs are included because our deployment runs Nextcloud AIO's Imaginary
+ * preview provider (`OC\Preview\ImaginaryPDF`), which does render them --
+ * see PDF_Previews.md for the server-side setup this depends on. On a plain
+ * Nextcloud without that provider a PDF preview request simply 404s and
+ * `previews.js` falls back to the icon, exactly like any other unsupported
+ * type; nothing here has to know which case it is.
  */
 
 const ICONS = {
@@ -43,7 +45,7 @@ function formatSize(bytes) {
 }
 
 /** Kinds worth asking Nextcloud for a thumbnail of. */
-const PREVIEWABLE_KINDS = new Set(['image']);
+const PREVIEWABLE_KINDS = new Set(['image', 'pdf']);
 
 /**
  * `/preview/<fileId>?v=<etag>&k=<kind>`, or null when we can't build a usable

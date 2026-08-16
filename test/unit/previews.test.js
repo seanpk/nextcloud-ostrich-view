@@ -173,7 +173,13 @@ test('cache: a miss fetches upstream, stores the bytes, and reports the type', a
     assert.equal(result.path, join(dir, '42-aaa111-512.png'));
     assert.deepEqual(await readFile(result.path), PNG);
     assert.equal(client.calls.length, 1);
-    assert.match(client.calls[0].path, /^\/index\.php\/core\/preview\?fileId=42&x=512&y=512&a=1$/);
+    // forceIcon=0 is what keeps "no preview provider for this type" a clean
+    // 404 instead of a 200 carrying a generic mimetype icon -- see the comment
+    // on `fill` for why a 200 without it would get cached as a real thumbnail.
+    assert.match(
+      client.calls[0].path,
+      /^\/index\.php\/core\/preview\?fileId=42&x=512&y=512&a=1&forceIcon=0$/
+    );
     assert.equal(client.calls[0].method, 'GET');
   });
 });

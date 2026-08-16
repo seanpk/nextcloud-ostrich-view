@@ -43,6 +43,15 @@ const png = (extra) => file('image/png', SAMPLE.png, extra);
 const jpg = (extra) => file('image/jpeg', SAMPLE.jpg, extra);
 
 /**
+ * Stand-in thumbnail bytes for a PDF preview, when `createMockNextcloud({
+ * pdfPreviews: true })` is simulating Imaginary. A real Imaginary render is a
+ * scaled rasterization of the PDF's first page; the app only cares that it
+ * gets back real, sniffable image bytes, so the mock hands over this instead
+ * of actually rasterizing anything.
+ */
+export const SAMPLE_PDF_THUMBNAIL = SAMPLE.png;
+
+/**
  * An SVG carrying script, because someone the owner shares a folder with can put
  * one there. It is an `image/*`, so anything keying off "is this an image"
  * would offer it inline -- and inline SVG on our own origin is script on our

@@ -292,12 +292,20 @@ export function createPreviewCache({
 
   /** Fetch from Nextcloud and land the bytes in the cache atomically. */
   async function fill(fileId, fileName) {
-    const query = `fileId=${fileId}&x=${size}&y=${size}&a=1`;
+    // forceIcon=0 is load-bearing: Nextcloud defaults it to 1, which means "no
+    // preview provider for this type" comes back as a 200 with a generic
+    // mimetype-icon IMAGE instead of a 404. Without this we would faithfully
+    // cache that flat icon as if it were a real thumbnail. With it, "no
+    // provider" is a clean 404 (handled below) and a 200 always means a real
+    // preview -- see PDF_Previews.md for the server-side half of this (the
+    // Imaginary preview provider, which is what makes PDFs get real
+    // thumbnails at all).
+    const query = `fileId=${fileId}&x=${size}&y=${size}&a=1&forceIcon=0`;
     const response = await client.request('GET', `/index.php/core/preview?${query}`);
 
-    // 404 is the normal answer for "no preview provider handles this type"
-    // (PDFs, on a default Nextcloud). 403 and redirects-to-login get the same
-    // treatment: show the icon, don't fail the page.
+    // 404 is the normal answer for "no preview provider handles this type".
+    // 403 and redirects-to-login get the same treatment: show the icon, don't
+    // fail the page.
     if (response.status === 404 || response.status === 403 || response.status >= 300) {
       // The body must be drained or the connection is held open.
       await response.arrayBuffer().catch(() => {});

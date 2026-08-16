@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 
 import {
   DEFAULT_TREE,
+  SAMPLE_PDF_THUMBNAIL,
   SHARE_OWNER,
   fakeEtag,
   fakeFileId,
@@ -26,9 +27,10 @@ import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
  *  - `GET` on a DAV path serves the node's real bytes, and implements a single
  *    byte range, because pdf.js will not open a large document without one;
  *  - `/index.php/core/preview` behaves like a default Nextcloud: it renders
- *    thumbnails for images and answers 404 for everything else (the PDF
- *    preview provider is off by default), which is exactly the case the icon
- *    fallback exists for.
+ *    thumbnails for images and 404s a PDF, which is exactly the case the icon
+ *    fallback exists for. `createMockNextcloud({ pdfPreviews: true })` turns
+ *    it into a server running the Imaginary provider our deployment actually
+ *    uses (PDF_Previews.md), which renders PDFs too.
  *
  * M4 added the third verb: `SEARCH` on `/remote.php/dav/`, parsing just enough
  * of the `d:basicsearch` body to honour the scope, the `getlastmodified`
@@ -243,13 +245,17 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string,
- *           searchStatus?: number|null, shareProps?: boolean }} [options]
+ *           searchStatus?: number|null, shareProps?: boolean,
+ *           pdfPreviews?: boolean }} [options]
  *   searchStatus: answer every SEARCH with this status instead of running it.
  *   405 is what a Nextcloud without the search backend sends, and is the case
  *   the app's walk fallback exists for.
  *   shareProps: false simulates a Nextcloud that doesn't know oc:permissions
  *   or oc:owner-id at all (both come back 404'd) -- the case
  *   src/nextcloud/shares.js's no-signal fallback exists for. Default true.
+ *   pdfPreviews: true simulates the Imaginary preview provider rendering a
+ *   real PDF thumbnail instead of 404ing (see PDF_Previews.md). Default
+ *   false, which is a stock Nextcloud with no PDF-capable provider.
  * @returns {{ start: () => Promise<{url: string, port: number}>,
  *             stop: () => Promise<void>,
  *             url: () => string,
@@ -264,6 +270,7 @@ export function createMockNextcloud(options = {}) {
   const password = options.password ?? TEST_APP_PASSWORD;
   let searchStatus = options.searchStatus ?? null;
   let shareProps = options.shareProps ?? true;
+  let pdfPreviews = options.pdfPreviews ?? false;
   const davRoot = davRootFor(user);
   const requests = [];
 
@@ -466,14 +473,26 @@ export function createMockNextcloud(options = {}) {
   }
 
   /**
-   * Stand-in for `/index.php/core/preview`. Images get a thumbnail; everything
-   * else 404s, the way a stock Nextcloud does for PDFs.
+   * Stand-in for `/index.php/core/preview`. Images always get a thumbnail;
+   * PDFs get one only when `pdfPreviews` is on (simulating Imaginary --
+   * see PDF_Previews.md), otherwise 404 exactly like a stock Nextcloud with
+   * no PDF-capable provider.
+   *
+   * `forceIcon=0` is asserted rather than merely accepted: the app depends on
+   * it to tell "no provider" (404) apart from "here is a generic mimetype
+   * icon" (200), and a mock that silently tolerated its absence would never
+   * catch a regression that dropped it from the request.
    */
   function handlePreview(req, res, params) {
     const fileId = Number(params.get('fileId'));
     if (!Number.isInteger(fileId)) {
       res.writeHead(400, { 'Content-Type': 'text/plain' });
       res.end('Bad fileId');
+      return;
+    }
+    if (params.get('forceIcon') !== '0') {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Expected forceIcon=0');
       return;
     }
 
@@ -483,19 +502,30 @@ export function createMockNextcloud(options = {}) {
       res.end('No preview');
       return;
     }
-    if (!String(found.node.contentType ?? '').startsWith('image/')) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('No preview provider');
+
+    const contentType = String(found.node.contentType ?? '');
+    if (contentType.startsWith('image/')) {
+      // The real endpoint scales the image; the app only cares that it gets
+      // image bytes back, so hand over the original.
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': String(found.node.bytes.length),
+      });
+      res.end(found.node.bytes);
       return;
     }
 
-    // The real endpoint scales the image; the app only cares that it gets
-    // image bytes back, so hand over the original.
-    res.writeHead(200, {
-      'Content-Type': found.node.contentType,
-      'Content-Length': String(found.node.bytes.length),
-    });
-    res.end(found.node.bytes);
+    if (pdfPreviews && contentType === 'application/pdf') {
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Length': String(SAMPLE_PDF_THUMBNAIL.length),
+      });
+      res.end(SAMPLE_PDF_THUMBNAIL);
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('No preview provider');
   }
 
   function handlePropfind(req, res, pathname) {
@@ -556,6 +586,10 @@ export function createMockNextcloud(options = {}) {
     /** false simulates a Nextcloud with no oc:permissions/oc:owner-id at all. */
     setShareProps(next) {
       shareProps = next ?? true;
+    },
+    /** true simulates Imaginary rendering real PDF thumbnails. */
+    setPdfPreviews(next) {
+      pdfPreviews = next ?? false;
     },
     url() {
       if (boundPort === null) throw new Error('Mock Nextcloud is not started');

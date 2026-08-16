@@ -105,24 +105,27 @@ ordinary Nextcloud sharing.
    show up under the viewer account's CalDAV home, which is what the app
    enumerates.
 
-6. **Optional: PDF thumbnails.** Nextcloud ships with the PDF preview provider
-   disabled, so PDFs get a generic PDF icon on the tiles. Opening a PDF works
-   regardless — the inline viewer renders the file itself and never asks
-   Nextcloud for a preview. To get real PDF thumbnails, an admin adds
-   `OC\Preview\PDF` to `enabledPreviewProviders` in `config/config.php`:
+6. **PDF thumbnails: tick Imaginary in Nextcloud AIO.** Opening a PDF works
+   without this — the inline viewer renders the file itself and never asks
+   Nextcloud for a preview — but a PDF tile only gets a real thumbnail once
+   something in Nextcloud can render one, and by default nothing can. On
+   Nextcloud AIO (what the Beelink runs), open the AIO interface, tick
+   **Imaginary** under the optional containers, then **Stop containers**
+   followed by **Start containers**. That's the whole setup: AIO's entrypoint
+   wires up `OC\Preview\Imaginary` and `OC\Preview\ImaginaryPDF` on every
+   restart from then on.
 
-   ```php
-   'enabledPreviewProviders' => [
-     'OC\Preview\PNG',
-     'OC\Preview\JPEG',
-     'OC\Preview\PDF',
-   ],
-   ```
+   Do **not** follow older guides that say to add `OC\Preview\PDF` to
+   `enabledPreviewProviders` by hand — that is the ImageMagick route, AIO's
+   ImageMagick policy blocks PDF rasterisation anyway, and AIO rewrites that
+   config on every restart regardless of what you set. See `PDF_Previews.md`
+   for the full story, how to check the current state, and how to clean up a
+   hand-edited config left over from that approach.
 
-   Existing PDFs get thumbnails the first time something asks for one, so no
-   regeneration step is needed. Note that this makes Nextcloud rasterise PDFs,
-   which costs CPU on a small box — that is why it is off by default and
-   optional here.
+   Existing PDFs get thumbnails the first time something asks for one; run
+   `occ preview:generate-all` (from the `previewgenerator` app) if you want
+   them pre-rendered for everything already shared, rather than one at a time
+   as she opens folders.
 
 ### Worth checking before the first deploy
 

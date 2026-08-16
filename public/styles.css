@@ -245,22 +245,35 @@ a {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1fr; /* phone: one full-width button per row */
-  gap: 0.75rem;
+  grid-template-columns: 1fr; /* phone: one full-width card per row */
+  gap: 1rem;
 }
 
+/*
+ * A file/folder tile is a card: a thumbnail band on top, the name and its
+ * muted second line below -- "previews of the document/photo with the name
+ * listed below", the way the project brief describes it. One macro
+ * (_tiles.njk) feeds home, every folder listing and "new since you last
+ * looked" alike, so this is the one place that shape is drawn.
+ *
+ * `.tile--tasklist` (tasks-home.njk) is a different component wearing the
+ * same base class for its chrome (card background/border/radius) -- its own
+ * layout is restored explicitly further down, in the Tasks section, rather
+ * than inheriting any of the card-specific rules below.
+ */
 .tile {
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  overflow: hidden; /* keeps the thumbnail's square corners inside the card's round ones */
   width: 100%;
-  min-height: 5.5rem; /* 88px -- comfortably above the 44px floor */
-  padding: 0.9rem 1rem;
   background: var(--card);
   border: 2px solid var(--line);
   border-radius: var(--radius);
   color: var(--ink);
   text-decoration: none;
+}
+
+.tile:not(.tile--tasklist) {
+  flex-direction: column;
 }
 
 a.tile:hover,
@@ -270,37 +283,45 @@ a.tile:focus-visible {
 }
 
 .tile--static {
-  /* M1: files aren't openable yet, so they read as labels, not buttons. */
+  /* A file this app cannot open inline reads as a label, not a button. */
   background: var(--card);
   border-style: dashed;
   color: var(--ink-soft);
 }
 
-.tile__thumb {
+.tile:not(.tile--tasklist) .tile__thumb {
   flex: 0 0 auto;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: 100%;
+  /* A fixed height, not an aspect-ratio: on a phone the card is nearly the
+     full viewport width, and a photo-style ratio (e.g. 16:10) against that
+     width would make the band taller than the screen. */
+  height: 8rem;
+  background: var(--paper);
 }
 
-.tile__icon,
 .tile__preview {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-}
-
-.tile__preview {
-  border-radius: 6px;
   object-fit: cover;
 }
 
-.tile__text {
+/* A flat icon (folder, or no thumbnail available) stays a fixed size and
+   centred in the band, rather than stretching to fill it. */
+.tile:not(.tile--tasklist) .tile__icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  object-fit: contain;
+}
+
+.tile:not(.tile--tasklist) .tile__text {
   display: flex;
   flex-direction: column;
-  min-width: 0; /* lets long names wrap inside the flex row */
+  gap: 0.15rem;
+  min-width: 0; /* lets long names wrap instead of widening the card */
+  padding: 0.85rem 1rem;
 }
 
 .tile__name {
@@ -316,7 +337,7 @@ a.tile:focus-visible {
 }
 
 /* "in Biology 101 › Lectures" -- context for a tile shown out of its folder.
-   Long course names must wrap rather than push the tile past the viewport. */
+   Long course names must wrap rather than push the card past the viewport. */
 .tile__meta--folder {
   overflow-wrap: anywhere;
 }
@@ -559,10 +580,6 @@ a.tile:focus-visible {
     grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
   }
 
-  .tile {
-    min-height: 6rem;
-  }
-
   .page__title {
     font-size: 2.2rem;
   }
@@ -597,10 +614,31 @@ a.tile:focus-visible {
 
 /* ---------- Task-list tiles ---------- */
 
+/*
+ * A task list tile is not a card with a preview band -- it is the original
+ * row layout (a colour block beside the name), restored explicitly here since
+ * the shared .tile base above now defaults to the file-tile card shape. See
+ * the comment on .tile in the Tiles section.
+ */
+.tile--tasklist {
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  min-height: 5.5rem; /* 88px -- comfortably above the 44px floor */
+  padding: 0.9rem 1rem;
+}
+
 .tile--tasklist .tile__thumb {
   /* The colour block stands in for a thumbnail on these tiles. */
+  flex: 0 0 auto;
   width: 2rem;
   height: 3rem;
+}
+
+.tile--tasklist .tile__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* lets a long list name wrap instead of overflowing the row */
 }
 
 .tasklist__mark {
