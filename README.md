@@ -137,11 +137,26 @@ subcommand. The standalone `docker-compose` v1 binary will not work here (the
 compose file has no `version:` key, which older v1 releases reject), and
 `deploy.sh` stops with a message if that is all it finds.
 
+Also required: the two docker networks this app joins must already exist. Both
+are created and owned by other compose projects on the Beelink, and
+`docker-compose.yml` declares them `external: true`, so compose fails rather
+than creating them itself:
+
 ```bash
-sudo mkdir -p /opt/ostrich-view
-sudo chown "$USER" /opt/ostrich-view
-git clone <this repo> /opt/ostrich-view
-cd /opt/ostrich-view
+docker network ls | grep -E 'proxy|nextcloud-aio'
+```
+
+- `proxy` — Caddy's network. Caddy is how traffic reaches this app, both from
+  the Cloudflare tunnel and from the LAN.
+- `nextcloud-aio` — Nextcloud AIO's network, so `NC_BASE_URL` can be the
+  Nextcloud container name.
+
+Then clone. Any directory works — `deploy.sh` resolves its own location — so
+keep it wherever the machine's other checkouts live:
+
+```bash
+git clone <this repo> ~/git-repos/nextcloud-ostrich-view
+cd ~/git-repos/nextcloud-ostrich-view
 mkdir -p data
 ```
 
@@ -163,12 +178,12 @@ $EDITOR .env
 
 | Variable | Required | What it is |
 |---|---|---|
-| `NC_BASE_URL` | yes | Where the app finds Nextcloud. **LAN or docker-network address, not the public Cloudflare hostname.** |
+| `NC_BASE_URL` | yes | Where the app finds Nextcloud. **LAN or docker-network address, not the public Cloudflare hostname.** On the Beelink, where this app joins the `nextcloud-aio` network: `http://nextcloud-aio-apache:11000`. |
 | `NC_USER` | yes | The dedicated viewer account, e.g. `ostrich-viewer`. |
 | `NC_APP_PASSWORD` | yes | The app password from step 3 above. Not the account password. |
 | `SESSION_SECRET` | yes | 64 hex characters (32 bytes). Encrypts the session cookie. |
-| `PORT` | no (3000) | Port inside the container. `docker-compose.yml` and the health check both read it, so changing it here is enough; the app stays published on the host at `127.0.0.1:3000`. |
-| `HOST` | no (`0.0.0.0`) | Bind address. The default is right for a container; the loopback-only exposure is the compose port mapping's job. |
+| `PORT` | no (3000) | Port inside the container — the port Caddy proxies to, and what the health check reads. Changing it here is enough; the host debug mapping stays at `127.0.0.1:3000`. |
+| `HOST` | no (`0.0.0.0`) | Bind address. The default is right for a container: it has to accept connections from Caddy on the `proxy` network, not just loopback. |
 | `DATA_DIR` | no (`/app/data` in the image) | Writable runtime directory: `preview-cache/` and `state.json`. Mounted from `./data`. |
 | `VIEWERS_FILE` | no (`config/viewers.json`) | Path to the viewer list. |
 | `LOG_LEVEL` | no (`info`) | `trace`…`fatal`. |
@@ -236,8 +251,10 @@ docker compose logs -f ostrich-view    # Ctrl-C to stop following
 (`data/` should already exist from the setup step above. If it does not, create
 it before this command, not after — see the note there.)
 
-The container publishes on `127.0.0.1:3000` only — nothing on the LAN can reach
-it directly. That is deliberate; the tunnel is the front door.
+The container publishes on `127.0.0.1:3000` only, and that mapping is for
+debugging from the host (`curl`, or `ssh -L 3000:127.0.0.1:3000`) — nothing on
+the LAN reaches the app through it. Real traffic arrives via Caddy on the
+`proxy` network, from the Cloudflare tunnel or from a LAN client; see §3.
 
 ---
 
@@ -249,25 +266,34 @@ dashboard, so this is a dashboard change, not a config file:
 1. Zero Trust → Networks → Tunnels → the Beelink's tunnel → **Configure** →
    *Public Hostnames* → **Add a public hostname**.
 2. Subdomain `ostrich`, domain `example.com`.
-3. Service: **HTTP**, URL `localhost:3000`.
+3. Service: **HTTP**, URL `http://caddy:80`.
 4. Save. Cloudflare creates the DNS record itself.
 
-`localhost:3000` is correct only if `cloudflared` runs on the host — a systemd
-service, or a container with `network_mode: host`. If `cloudflared` runs in a
-container on a bridge network, its `localhost` is its own container, and it
-cannot reach this app on the host's loopback either: the compose port mapping
-publishes on `127.0.0.1` only, and `host.docker.internal` resolves to the
-host's *bridge* address, which nothing is listening on. Two arrangements work
-in that case:
+**Why `caddy:80` and not `localhost:3000`.** `localhost:3000` is correct only
+if `cloudflared` runs on the host — a systemd service, or a container with
+`network_mode: host`. On the Beelink it runs in a container on a bridge
+network, so its `localhost` is its own container. It cannot reach this app on
+the host's loopback either: the compose port mapping publishes on `127.0.0.1`
+only, and `host.docker.internal` resolves to the host's *bridge* address, which
+nothing is listening on.
 
-- Put both containers on the same docker network and use
-  `http://ostrich-view:3000` (the container port, i.e. `PORT`) — no host
-  publishing involved at all.
-- Run `cloudflared` on the host instead (systemd service or `network_mode:
-  host`) and keep `http://localhost:3000`.
+The arrangement in use puts everything on a shared docker network. `cloudflared`
+and Caddy share `proxy`, and this app joins it too, so the tunnel hands traffic
+to Caddy, which routes by `Host` header to `ostrich-view:3000` — the container
+port, i.e. `PORT`, with no host publishing involved. Caddy already fronts
+Nextcloud the same way, and it is what serves the LAN route below. The Caddy
+config lives in the `homelab-beelink-setup` repo, not here.
 
-`https://ostrich.example.com` should now show the login page. TLS is
-terminated by Cloudflare. The app sets `trustProxy`, which only affects
+(The alternative, if there were no reverse proxy: run `cloudflared` on the host
+as a systemd service or with `network_mode: host`, and keep
+`http://localhost:3000`.)
+
+`https://ostrich.example.com` should now show the login page over the tunnel,
+with TLS terminated by Cloudflare. From the LAN, local DNS points the same name
+at the Beelink and Caddy answers directly with its own Let's Encrypt
+certificate, so the traffic never leaves the house.
+
+The app sets `trustProxy`, which only affects
 `req.ip` — what shows up in the logs — not rate limiting: the login limiter
 keys directly on the `CF-Connecting-IP` header (5 attempts/minute), which is
 forgeable by anything that can reach the origin without going through
@@ -283,7 +309,7 @@ Do not add a "Cache Everything" page rule for this hostname.
 
 ```bash
 ssh beelink
-cd /opt/ostrich-view && ./deploy.sh
+cd ~/git-repos/nextcloud-ostrich-view && ./deploy.sh
 ```
 
 `deploy.sh` is deliberately small and does exactly this:
@@ -416,7 +442,7 @@ For the credential cases the fix is section 1, step 3 again: log in as
 `NC_APP_PASSWORD`, and redeploy:
 
 ```bash
-cd /opt/ostrich-view
+cd ~/git-repos/nextcloud-ostrich-view
 $EDITOR .env          # NC_APP_PASSWORD=<the new one>
 ./deploy.sh
 ```

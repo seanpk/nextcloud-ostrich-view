@@ -3,7 +3,7 @@
 # Deploy Nextcloud Ostrich View on the Beelink.
 #
 #   ssh beelink
-#   cd /opt/ostrich-view && ./deploy.sh
+#   cd ~/git-repos/nextcloud-ostrich-view && ./deploy.sh
 #
 # Pull, rebuild, restart, then prove the thing is actually answering before
 # saying so. Deploys are hand-triggered on purpose: there is no CI runner on
