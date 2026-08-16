@@ -66,6 +66,42 @@ test.describe('Signing in', () => {
   });
 });
 
+test.describe('Show/hide passphrase', () => {
+  test('the reveal button is hidden with JS disabled', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    try {
+      await page.goto('/login');
+      await expect(page.getByLabel('Your passphrase')).toBeVisible();
+      await expect(page.locator('.login__reveal')).toBeHidden();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('clicking it reveals the typed passphrase, then hides it again', async ({ page }) => {
+    await page.goto('/login');
+
+    const input = page.getByLabel('Your passphrase');
+    const reveal = page.getByRole('button', { name: 'Show' });
+
+    await expect(reveal).toBeVisible();
+    await expect(input).toHaveAttribute('type', 'password');
+    await expect(reveal).toHaveAttribute('aria-pressed', 'false');
+
+    await input.fill('a secret');
+    await reveal.click();
+
+    await expect(input).toHaveAttribute('type', 'text');
+    await expect(input).toHaveValue('a secret');
+    await expect(page.getByRole('button', { name: 'Hide' })).toHaveAttribute('aria-pressed', 'true');
+
+    await page.getByRole('button', { name: 'Hide' }).click();
+    await expect(input).toHaveAttribute('type', 'password');
+    await expect(page.getByRole('button', { name: 'Show' })).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
 test.describe('Without a session', () => {
   test('a deep /files URL redirects to /login', async ({ page }) => {
     await page.goto('/files/Biology%20101/Lectures');
@@ -88,6 +124,12 @@ test.describe('Without a session', () => {
     const response = await request.get('/public/styles.css');
     expect(response.status()).toBe(200);
     expect(response.headers()['content-type']).toContain('text/css');
+  });
+
+  test('the login page script is reachable without a session', async ({ request }) => {
+    const response = await request.get('/public/login.js');
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toContain('javascript');
   });
 });
 

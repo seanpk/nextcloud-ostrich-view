@@ -409,7 +409,17 @@ a.tile:focus-visible {
   color: var(--ink-soft);
 }
 
+/* Input + reveal button as one row, so the button never pushes the field
+   past the form's own max-width and the row never scrolls sideways. */
+.login__field {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
 .login__input {
+  flex: 1 1 auto;
+  min-width: 0; /* lets the input shrink for the button instead of overflowing */
   min-height: var(--tap);
   font-size: 1.35rem;
   padding: 0.6rem 0.85rem;
@@ -423,6 +433,38 @@ a.tile:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 1px;
   border-color: var(--accent);
+}
+
+/* Show/hide the passphrase. Square-ish and at least --tap in both
+   dimensions so it clears the same 44px floor as everything else, even
+   though its label is short. */
+.login__reveal {
+  flex: 0 0 auto;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 1rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.login__reveal[aria-pressed='true'] {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+
+.login__reveal:hover,
+.login__reveal:focus-visible {
+  border-color: var(--accent);
+}
+
+.login__reveal:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .btn {

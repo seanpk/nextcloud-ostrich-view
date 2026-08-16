@@ -11,7 +11,8 @@ import { test, expect, login } from './fixtures.js';
 const MIN_TAP = 44; // px -- the WCAG/Apple floor. Our design aims far above it.
 
 /** Every visible thing you can tap or click. */
-const INTERACTIVE = 'a.tile, a.back, .btn, .footer__logout, .toggle__option, .login__input';
+const INTERACTIVE =
+  'a.tile, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal';
 
 const PAGES = [
   { name: 'home', path: '/', needsLogin: true },
