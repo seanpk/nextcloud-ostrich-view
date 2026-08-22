@@ -13,19 +13,36 @@
 
   <form class="login" method="post" action="/login" autocomplete="on">
     <label class="login__label" for="passphrase">Your passphrase</label>
-    <input
-      class="login__input"
-      id="passphrase"
-      name="passphrase"
-      type="password"
-      autocomplete="current-password"
-      autocapitalize="none"
-      autocorrect="off"
-      spellcheck="false"
-      inputmode="text"
-      required
-      autofocus
-    />
+    <div class="login__field">
+      <input
+        class="login__input"
+        id="passphrase"
+        name="passphrase"
+        type="password"
+        autocomplete="current-password"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
+        inputmode="text"
+        required
+        autofocus
+      />
+      {#
+        Hidden until public/login.js removes the attribute -- with JS off
+        there is no dead control, just the plain password field.
+      #}
+      <button
+        class="login__reveal"
+        type="button"
+        aria-pressed="false"
+        aria-controls="passphrase"
+        hidden
+      >Show</button>
+    </div>
     <button class="btn btn--primary login__submit" type="submit">Enter</button>
   </form>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/public/login.js?v={{ appVersion }}" defer></script>
 {% endblock %}

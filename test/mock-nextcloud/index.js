@@ -2,11 +2,14 @@ import { createServer } from 'node:http';
 
 import {
   DEFAULT_TREE,
+  SAMPLE_PDF_THUMBNAIL,
+  SHARE_OWNER,
   fakeEtag,
   fakeFileId,
   indexByFileId,
   lastModifiedOf,
   resolveNode,
+  shareOwnerOf,
   walkFiles,
 } from './tree.js';
 import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
@@ -24,9 +27,10 @@ import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
  *  - `GET` on a DAV path serves the node's real bytes, and implements a single
  *    byte range, because pdf.js will not open a large document without one;
  *  - `/index.php/core/preview` behaves like a default Nextcloud: it renders
- *    thumbnails for images and answers 404 for everything else (the PDF
- *    preview provider is off by default), which is exactly the case the icon
- *    fallback exists for.
+ *    thumbnails for images and 404s a PDF, which is exactly the case the icon
+ *    fallback exists for. `createMockNextcloud({ pdfPreviews: true })` turns
+ *    it into a server running the Imaginary provider our deployment actually
+ *    uses (PDF_Previews.md), which renders PDFs too.
  *
  * M4 added the third verb: `SEARCH` on `/remote.php/dav/`, parsing just enough
  * of the `d:basicsearch` body to honour the scope, the `getlastmodified`
@@ -75,7 +79,31 @@ function checkAuth(req, user, password) {
   return decoded.slice(0, separator) === user && decoded.slice(separator + 1) === password;
 }
 
-function responseXmlFor(davRoot, relPath, node) {
+/**
+ * The `oc:owner-id` this response should report, or null when the answer is
+ * "the account's own content, no signal to give". Mirrors real Nextcloud:
+ * the root itself is never a share of itself, and everything else inherits
+ * its top-level entry's `sharedBy` when a live `tree` is available.
+ *
+ * Direct `buildMultistatus`/`buildSearchMultistatus` callers that don't pass
+ * `tree` (most of the existing unit tests) get the pre-M5 behaviour instead:
+ * every non-root response is a share, owned by `shareOwner`. That is what
+ * keeps those tests passing unchanged now that the props exist at all.
+ */
+function ownerIdFor(relPath, { tree, shareOwner, user }) {
+  if (relPath === '') return null;
+  if (tree) return shareOwnerOf(tree, relPath);
+  return shareOwner ?? user;
+}
+
+/**
+ * @param {{user: string, ownerId: string|null, shareProps: boolean}} share
+ *   ownerId: null means "the account's own content" -- reported as the
+ *   account itself, with no S/M permission letter. shareProps: false omits
+ *   both properties from the 200 propstat and lists them as 404 instead, the
+ *   way a Nextcloud that doesn't know them at all would answer.
+ */
+function responseXmlFor(davRoot, relPath, node, { user, ownerId = null, shareProps = true } = {}) {
   const isFolder = node.type === 'folder';
   // Folders carry a modification time too, and a JSON dataset (dataset.js) may
   // stamp one. Unstamped nodes -- which is every folder in the fixture tree --
@@ -93,9 +121,25 @@ function responseXmlFor(davRoot, relPath, node) {
     ? ''
     : `<d:getcontenttype>${xmlEscape(node.contentType ?? 'application/octet-stream')}</d:getcontenttype>`;
 
-  const notFoundBlock = isFolder
+  const effectiveOwnerId = ownerId ?? user;
+  const permissions = isFolder
+    ? `${ownerId ? 'S' : ''}RGDNVCK`
+    : `${ownerId ? 'S' : ''}RGDNVW`;
+  const shareProp = shareProps
+    ? `<oc:permissions>${permissions}</oc:permissions>
+          <oc:owner-id>${xmlEscape(effectiveOwnerId)}</oc:owner-id>`
+    : '';
+
+  // Not-found props for this response, all in the one 404 propstat a real
+  // server would use -- getcontenttype for a collection, and/or the share
+  // props when the caller is simulating a Nextcloud that doesn't know them.
+  const notFoundProps = [
+    ...(isFolder ? ['<d:getcontenttype/>'] : []),
+    ...(shareProps ? [] : ['<oc:permissions/>', '<oc:owner-id/>']),
+  ];
+  const notFoundBlock = notFoundProps.length
     ? `      <d:propstat>
-        <d:prop><d:getcontenttype/></d:prop>
+        <d:prop>${notFoundProps.join('')}</d:prop>
         <d:status>HTTP/1.1 404 Not Found</d:status>
       </d:propstat>
 `
@@ -111,6 +155,7 @@ function responseXmlFor(davRoot, relPath, node) {
           <d:resourcetype>${resourcetype}</d:resourcetype>
           <oc:size>${size}</oc:size>
           <d:getetag>&quot;${etag}&quot;</d:getetag>
+          ${shareProp}
         </d:prop>
         <d:status>HTTP/1.1 200 OK</d:status>
       </d:propstat>
@@ -121,14 +166,41 @@ ${notFoundBlock}    </d:response>`;
  * Build a 207 multistatus body for a Depth-1 PROPFIND.
  * The first entry is always the collection itself -- exactly the thing the
  * parser has to skip.
+ *
+ * @param {{davRoot: string, relPath: string, node: object, tree?: object|null,
+ *           shareOwner?: string, shareProps?: boolean, user?: string}} options
+ *   tree: the live fixture tree, used to look up each entry's real `sharedBy`
+ *     via shareOwnerOf(). Omit it (as most direct unit-test callers do) to
+ *     get the simpler "everything is a share" behaviour via `shareOwner`.
  */
-export function buildMultistatus({ davRoot, relPath, node }) {
-  const parts = [responseXmlFor(davRoot, relPath, node)];
+export function buildMultistatus({
+  davRoot,
+  relPath,
+  node,
+  tree = null,
+  shareOwner = SHARE_OWNER,
+  shareProps = true,
+  user = TEST_USER,
+}) {
+  const share = { tree, shareOwner, user };
+  const parts = [
+    responseXmlFor(davRoot, relPath, node, {
+      user,
+      shareProps,
+      ownerId: ownerIdFor(relPath, share),
+    }),
+  ];
 
   if (node.type === 'folder') {
     for (const [name, child] of Object.entries(node.children ?? {})) {
       const childPath = relPath === '' ? name : `${relPath}/${name}`;
-      parts.push(responseXmlFor(davRoot, childPath, child));
+      parts.push(
+        responseXmlFor(davRoot, childPath, child, {
+          user,
+          shareProps,
+          ownerId: ownerIdFor(childPath, share),
+        })
+      );
     }
   }
 
@@ -148,10 +220,24 @@ ${parts.join('\n')}
  * particular relationship between them -- which is exactly the shape the app's
  * parser has to cope with when it reuses `parseMultistatus` for search results.
  *
- * @param {{davRoot: string, files: Array<{path: string, node: object}>}} options
+ * @param {{davRoot: string, files: Array<{path: string, node: object}>,
+ *           tree?: object|null, shareOwner?: string, shareProps?: boolean,
+ *           user?: string}} options see buildMultistatus for `tree`/`shareOwner`.
  */
-export function buildSearchMultistatus({ davRoot, files }) {
-  return wrapMultistatus(files.map(({ path, node }) => responseXmlFor(davRoot, path, node)));
+export function buildSearchMultistatus({
+  davRoot,
+  files,
+  tree = null,
+  shareOwner = SHARE_OWNER,
+  shareProps = true,
+  user = TEST_USER,
+}) {
+  const share = { tree, shareOwner, user };
+  return wrapMultistatus(
+    files.map(({ path, node }) =>
+      responseXmlFor(davRoot, path, node, { user, shareProps, ownerId: ownerIdFor(path, share) })
+    )
+  );
 }
 
 /** Nothing this mock is asked to accept is anywhere near this big. */
@@ -159,10 +245,17 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string,
- *           searchStatus?: number|null }} [options]
+ *           searchStatus?: number|null, shareProps?: boolean,
+ *           pdfPreviews?: boolean }} [options]
  *   searchStatus: answer every SEARCH with this status instead of running it.
  *   405 is what a Nextcloud without the search backend sends, and is the case
  *   the app's walk fallback exists for.
+ *   shareProps: false simulates a Nextcloud that doesn't know oc:permissions
+ *   or oc:owner-id at all (both come back 404'd) -- the case
+ *   src/nextcloud/shares.js's no-signal fallback exists for. Default true.
+ *   pdfPreviews: true simulates the Imaginary preview provider rendering a
+ *   real PDF thumbnail instead of 404ing (see PDF_Previews.md). Default
+ *   false, which is a stock Nextcloud with no PDF-capable provider.
  * @returns {{ start: () => Promise<{url: string, port: number}>,
  *             stop: () => Promise<void>,
  *             url: () => string,
@@ -176,6 +269,17 @@ export function createMockNextcloud(options = {}) {
   const user = options.user ?? TEST_USER;
   const password = options.password ?? TEST_APP_PASSWORD;
   let searchStatus = options.searchStatus ?? null;
+  let shareProps = options.shareProps ?? true;
+  // What the OCS Share API reports as shared WITH this account.
+  //   undefined -> derived from the tree: every top-level node carrying
+  //                `sharedBy`, mounted at the top. A plain instance with no
+  //                share_folder, which is what most tests want.
+  //   null      -> the endpoint 404s, as if files_sharing were unavailable.
+  //                How a test exercises the home page's fallback path.
+  //   [...]     -> explicit `file_target` values, e.g. ['/Shared/Family'] for
+  //                an instance with share_folder set.
+  let receivedShares = options.receivedShares;
+  let pdfPreviews = options.pdfPreviews ?? false;
   const davRoot = davRootFor(user);
   const requests = [];
 
@@ -225,6 +329,11 @@ export function createMockNextcloud(options = {}) {
 
     if (req.method === 'GET' && pathname === '/index.php/core/preview') {
       handlePreview(req, res, new URLSearchParams(rawQuery));
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/ocs/v2.php/apps/files_sharing/api/v1/shares') {
+      handleOcsShares(req, res, new URLSearchParams(rawQuery));
       return;
     }
 
@@ -290,7 +399,15 @@ export function createMockNextcloud(options = {}) {
       .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 50);
 
     res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
-    res.end(buildSearchMultistatus({ davRoot: davRoot.replace(/\/+$/, ''), files: matches }));
+    res.end(
+      buildSearchMultistatus({
+        davRoot: davRoot.replace(/\/+$/, ''),
+        files: matches,
+        tree,
+        shareProps,
+        user,
+      })
+    );
   }
 
   /**
@@ -370,14 +487,84 @@ export function createMockNextcloud(options = {}) {
   }
 
   /**
-   * Stand-in for `/index.php/core/preview`. Images get a thumbnail; everything
-   * else 404s, the way a stock Nextcloud does for PDFs.
+   * Stand-in for `/index.php/core/preview`. Images always get a thumbnail;
+   * PDFs get one only when `pdfPreviews` is on (simulating Imaginary --
+   * see PDF_Previews.md), otherwise 404 exactly like a stock Nextcloud with
+   * no PDF-capable provider.
+   *
+   * `forceIcon=0` is asserted rather than merely accepted: the app depends on
+   * it to tell "no provider" (404) apart from "here is a generic mimetype
+   * icon" (200), and a mock that silently tolerated its absence would never
+   * catch a regression that dropped it from the request.
    */
+  /**
+   * The OCS Share API, incoming direction only -- see ../../src/nextcloud/ocs.js.
+   *
+   * Answers 404 when `receivedShares` is null, which is what an instance
+   * without files_sharing (or a request the app is not allowed to make) looks
+   * like, and what the home page's fallback is written against.
+   */
+  function handleOcsShares(req, res, query) {
+    // Derived rather than fixed, because setTree() can swap the fixture after
+    // the mock is built and the two must not drift apart.
+    const targets =
+      receivedShares === undefined
+        ? Object.entries(tree)
+            .filter(([, node]) => node?.sharedBy)
+            .map(([name]) => `/${name}`)
+        : receivedShares;
+
+    if (targets === null) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+
+    // The app must send this header or real Nextcloud answers 401 regardless of
+    // credentials. Enforced here so a regression that drops it fails in tests
+    // rather than only against the real server.
+    if (req.headers['ocs-apirequest'] !== 'true') {
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      res.end('CSRF check failed');
+      return;
+    }
+
+    // Only the incoming direction is implemented; the app asks nothing else.
+    if (query.get('shared_with_me') !== 'true') {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Mock only implements shared_with_me=true');
+      return;
+    }
+
+    const data = targets.map((target, index) => ({
+      id: String(100 + index),
+      share_type: 0,
+      uid_owner: SHARE_OWNER,
+      file_target: target,
+      item_type: 'folder',
+      permissions: 1,
+    }));
+
+    const payload = JSON.stringify({
+      ocs: { meta: { status: 'ok', statuscode: 200, message: 'OK' }, data },
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(payload),
+    });
+    res.end(payload);
+  }
+
   function handlePreview(req, res, params) {
     const fileId = Number(params.get('fileId'));
     if (!Number.isInteger(fileId)) {
       res.writeHead(400, { 'Content-Type': 'text/plain' });
       res.end('Bad fileId');
+      return;
+    }
+    if (params.get('forceIcon') !== '0') {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Expected forceIcon=0');
       return;
     }
 
@@ -387,19 +574,30 @@ export function createMockNextcloud(options = {}) {
       res.end('No preview');
       return;
     }
-    if (!String(found.node.contentType ?? '').startsWith('image/')) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('No preview provider');
+
+    const contentType = String(found.node.contentType ?? '');
+    if (contentType.startsWith('image/')) {
+      // The real endpoint scales the image; the app only cares that it gets
+      // image bytes back, so hand over the original.
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': String(found.node.bytes.length),
+      });
+      res.end(found.node.bytes);
       return;
     }
 
-    // The real endpoint scales the image; the app only cares that it gets
-    // image bytes back, so hand over the original.
-    res.writeHead(200, {
-      'Content-Type': found.node.contentType,
-      'Content-Length': String(found.node.bytes.length),
-    });
-    res.end(found.node.bytes);
+    if (pdfPreviews && contentType === 'application/pdf') {
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Length': String(SAMPLE_PDF_THUMBNAIL.length),
+      });
+      res.end(SAMPLE_PDF_THUMBNAIL);
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('No preview provider');
   }
 
   function handlePropfind(req, res, pathname) {
@@ -423,7 +621,7 @@ export function createMockNextcloud(options = {}) {
 
     if (node.type !== 'folder') {
       // Depth-1 on a file is legal and returns just the file itself.
-      const xml = buildMultistatus({ davRoot: rootNormalized, relPath, node });
+      const xml = buildMultistatus({ davRoot: rootNormalized, relPath, node, tree, shareProps, user });
       res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
       res.end(xml);
       return;
@@ -434,6 +632,9 @@ export function createMockNextcloud(options = {}) {
       davRoot: rootNormalized,
       relPath,
       node: depth === '0' ? { ...node, children: {} } : node,
+      tree,
+      shareProps,
+      user,
     });
     res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
     res.end(xml);
@@ -453,6 +654,23 @@ export function createMockNextcloud(options = {}) {
      */
     setSearchStatus(next) {
       searchStatus = next ?? null;
+    },
+    /** false simulates a Nextcloud with no oc:permissions/oc:owner-id at all. */
+    setShareProps(next) {
+      shareProps = next ?? true;
+    },
+    /** true simulates Imaginary rendering real PDF thumbnails. */
+    setPdfPreviews(next) {
+      pdfPreviews = next ?? false;
+    },
+    /**
+     * What the OCS Share API reports. `undefined` derives it from the tree,
+     * `null` makes the endpoint 404 (the fallback path), an array sets the
+     * `file_target` values verbatim -- which is how a share_folder instance is
+     * simulated.
+     */
+    setReceivedShares(next) {
+      receivedShares = next;
     },
     url() {
       if (boundPort === null) throw new Error('Mock Nextcloud is not started');

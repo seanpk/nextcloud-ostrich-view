@@ -129,6 +129,58 @@ async function main() {
       if (pdfViewer.pagesCount > 0) pdfViewer.currentScaleValue = zoomFromHash();
     }, 150);
   });
+
+  wireImmersiveTapForwarding(container);
+}
+
+/**
+ * Forward a tap to the parent's full-screen chrome toggle.
+ *
+ * A tap inside this iframe can never bubble to the parent document, so
+ * public/viewer.js cannot see it directly -- this is the only way it learns
+ * "she tapped the document". `key: Escape` exists for the same reason in the
+ * other direction: once a tap has happened, focus lives in here, so the
+ * parent's own Escape listener would never fire again without this.
+ *
+ * Exactly two message shapes, always to our own origin (never `'*'`), and
+ * only when this page is actually embedded -- the same file also loads
+ * top-level in view.spec.js's "refuses to open anything outside our proxy"
+ * check, where `window.parent === window` and none of this should run.
+ */
+function wireImmersiveTapForwarding(container) {
+  if (window.parent === window) return;
+
+  const post = (message) => window.parent.postMessage({ v: 1, source: 'ostrich-pdf', ...message }, window.location.origin);
+
+  const TAP_MOVE_PX = 10;
+  const TAP_MAX_MS = 500;
+  let start = null;
+
+  container.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('a')) {
+      start = null; // a link inside the document, not a tap on it
+      return;
+    }
+    start = { x: event.clientX, y: event.clientY, t: Date.now(), scrollTop: container.scrollTop };
+  });
+
+  container.addEventListener('pointerup', (event) => {
+    const from = start;
+    start = null;
+    if (!from) return;
+
+    const dx = Math.abs(event.clientX - from.x);
+    const dy = Math.abs(event.clientY - from.y);
+    const dt = Date.now() - from.t;
+    const scrolled = container.scrollTop !== from.scrollTop;
+    if (dx > TAP_MOVE_PX || dy > TAP_MOVE_PX || dt > TAP_MAX_MS || scrolled) return;
+
+    post({ type: 'tap' });
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') post({ type: 'key', key: 'Escape' });
+  });
 }
 
 main().catch((error) => {

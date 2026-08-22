@@ -21,6 +21,7 @@ import { toSlug } from '../../src/nextcloud/caldav.js';
  *   {
  *     "files": {
  *       "Biology 101": {
+ *         "sharedBy": "liam",
  *         "children": {
  *           "syllabus.pdf":   { "asset": "assets/sample.pdf" },
  *           "reading.txt":    { "text": "Chapter 4 by Friday\n" },
@@ -46,6 +47,22 @@ import { toSlug } from '../../src/nextcloud/caldav.js';
  * relative to the JSON file itself so a dataset directory can be copied
  * somewhere else whole. Content types are inferred from the extension unless
  * the entry says otherwise.
+ *
+ * `sharedBy` marks a TOP-LEVEL entry as something the named person shared
+ * with the viewer account -- the home page shows a folder button only for
+ * entries carrying it (see src/nextcloud/shares.js). It only makes sense at
+ * the top level: a real Nextcloud share is granted on a whole folder, not
+ * file-by-file, so everything nested under a shared entry inherits it
+ * automatically, and the loader refuses the key anywhere deeper.
+ *
+ * A dataset that never sets `sharedBy` at all is not the same as one written
+ * before the key existed: every entry then has an ANSWERED "not shared"
+ * (Nextcloud does report real permissions/ownership for the account's own
+ * content, it just isn't a share), so a demo/test dataset that wants
+ * anything to show up on the home page has to say so explicitly. The
+ * "unknown signal, so show everything" fallback is a different case
+ * entirely -- it is for a Nextcloud version that omits the properties
+ * themselves, which `createMockNextcloud({ shareProps: false })` simulates.
  *
  * TIMES ARE RELATIVE, ON PURPOSE. `lastModified`, `due` and `completed` accept
  * absolute dates, but also an offset from *now* -- `"-3h"`, `"+2d"`, `"-45m"`.
@@ -225,7 +242,7 @@ function optionalInteger(value, where, { min, max }) {
  * by name -- except a leading underscore, which is how a dataset writes a
  * comment (see `_comment` in demo/dataset.json).
  */
-const FILE_KEYS = ['children', 'text', 'asset', 'contentType', 'lastModified'];
+const FILE_KEYS = ['children', 'text', 'asset', 'contentType', 'lastModified', 'sharedBy'];
 const TASK_KEYS = [
   'summary',
   'description',
@@ -320,7 +337,7 @@ function readAsset(relPath, { baseDir, where, assets }) {
  * folders are `{type: 'folder', children}` and files carry real `bytes` with a
  * `size` derived from them, so `oc:size` and `Content-Length` cannot disagree.
  */
-function buildChildren(raw, { baseDir, where, now, assets }) {
+function buildChildren(raw, { baseDir, where, now, assets, topLevel = false }) {
   // Null prototype: a name like "__proto__" would otherwise be swallowed by the
   // object's own prototype slot rather than stored -- the entry vanishes from
   // every listing while the dataset still says it is there. `checkName` refuses
@@ -338,6 +355,15 @@ function buildChildren(raw, { baseDir, where, now, assets }) {
       entry.lastModified === undefined
         ? {}
         : { lastModified: moment(entry.lastModified, { where: `${at}.lastModified`, now }).date.toUTCString() };
+
+    const sharedBy = optionalString(entry.sharedBy, `${at}.sharedBy`);
+    if (sharedBy !== null && !topLevel) {
+      throw new DatasetError(
+        `${at}.sharedBy: only makes sense on a top-level entry -- everything inside a share ` +
+          'inherits it.'
+      );
+    }
+    const shared = sharedBy === null ? {} : { sharedBy };
 
     const ways = ['children', 'text', 'asset'].filter((key) => entry[key] !== undefined);
     if (ways.length === 0) {
@@ -358,8 +384,10 @@ function buildChildren(raw, { baseDir, where, now, assets }) {
           where: `${at}.children`,
           now,
           assets,
+          topLevel: false,
         }),
         ...lastModified,
+        ...shared,
       };
       continue;
     }
@@ -383,6 +411,7 @@ function buildChildren(raw, { baseDir, where, now, assets }) {
       bytes,
       size: bytes.length,
       ...lastModified,
+      ...shared,
     };
   }
 
@@ -627,7 +656,7 @@ export function buildDataset(data, { baseDir, now = Date.now(), source = 'datase
     tree:
       data.files === undefined
         ? {}
-        : buildChildren(data.files, { baseDir, where: `${source}.files`, now, assets }),
+        : buildChildren(data.files, { baseDir, where: `${source}.files`, now, assets, topLevel: true }),
     calendars: data.tasks === undefined ? [] : buildCalendars(data.tasks, { where: `${source}.tasks`, now }),
   };
 }

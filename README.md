@@ -82,7 +82,18 @@ ordinary Nextcloud sharing.
 
 2. **Log in as `ostrich-viewer` once.** Nextcloud does not finish provisioning
    an account (skeleton files, calendar home) until its first login, and the
-   app's task discovery needs the calendar home to exist.
+   app's task discovery needs the calendar home to exist. That first login is
+   also what seeds `Documents`, `Photos`, `Templates` and a couple of sample
+   files in the account's own storage — leave them. The home page shows only
+   what has been shared **with** the account, not what it happens to own, so
+   this skeleton content never reaches the page (see `src/nextcloud/shares.js`).
+
+   Nothing to configure for `share_folder` either. If the instance sets it —
+   Nextcloud's own default is `/Shared` — received shares are mounted inside a
+   folder the account owns rather than at the top of its files home. The app
+   asks the OCS Share API where they actually are (`src/nextcloud/ocs.js`) and
+   lists that folder as well, so the shares appear as tiles either way and the
+   container folder itself does not.
 
 3. **Generate an app password.** While logged in as `ostrich-viewer`:
    Settings → Security → *Devices & sessions* → "Create new app password", name
@@ -101,24 +112,27 @@ ordinary Nextcloud sharing.
    show up under the viewer account's CalDAV home, which is what the app
    enumerates.
 
-6. **Optional: PDF thumbnails.** Nextcloud ships with the PDF preview provider
-   disabled, so PDFs get a generic PDF icon on the tiles. Opening a PDF works
-   regardless — the inline viewer renders the file itself and never asks
-   Nextcloud for a preview. To get real PDF thumbnails, an admin adds
-   `OC\Preview\PDF` to `enabledPreviewProviders` in `config/config.php`:
+6. **PDF thumbnails: tick Imaginary in Nextcloud AIO.** Opening a PDF works
+   without this — the inline viewer renders the file itself and never asks
+   Nextcloud for a preview — but a PDF tile only gets a real thumbnail once
+   something in Nextcloud can render one, and by default nothing can. On
+   Nextcloud AIO (what the Beelink runs), open the AIO interface, tick
+   **Imaginary** under the optional containers, then **Stop containers**
+   followed by **Start containers**. That's the whole setup: AIO's entrypoint
+   wires up `OC\Preview\Imaginary` and `OC\Preview\ImaginaryPDF` on every
+   restart from then on.
 
-   ```php
-   'enabledPreviewProviders' => [
-     'OC\Preview\PNG',
-     'OC\Preview\JPEG',
-     'OC\Preview\PDF',
-   ],
-   ```
+   Do **not** follow older guides that say to add `OC\Preview\PDF` to
+   `enabledPreviewProviders` by hand — that is the ImageMagick route, AIO's
+   ImageMagick policy blocks PDF rasterisation anyway, and AIO rewrites that
+   config on every restart regardless of what you set. See `PDF_Previews.md`
+   for the full story, how to check the current state, and how to clean up a
+   hand-edited config left over from that approach.
 
-   Existing PDFs get thumbnails the first time something asks for one, so no
-   regeneration step is needed. Note that this makes Nextcloud rasterise PDFs,
-   which costs CPU on a small box — that is why it is off by default and
-   optional here.
+   Existing PDFs get thumbnails the first time something asks for one; run
+   `occ preview:generate-all` (from the `previewgenerator` app) if you want
+   them pre-rendered for everything already shared, rather than one at a time
+   as she opens folders.
 
 ### Worth checking before the first deploy
 
@@ -487,6 +501,12 @@ sitting two days ago, and two files in the dataset are stamped within that
 window, so the section is populated on the first load instead of never (a
 brand-new viewer has nothing to compare against — see §5 of `PLAN.md` and
 `src/store/visits.js`).
+
+The dataset also seeds `Documents`, `Photos`, `Templates` and a few sample
+files — exactly the skeleton content a freshly created Nextcloud account gets
+on its first login — deliberately **not** marked as shared, so the demo shows
+off the home page hiding them. Only entries with `"sharedBy"` set in
+`demo/dataset.json` become folder buttons.
 
 Nothing is written to `./data` or `config/`. The viewer list, the preview cache
 and `state.json` live in a temp directory that is deleted on Ctrl-C, and the

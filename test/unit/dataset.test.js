@@ -433,6 +433,36 @@ test('dataset: a key nobody reads is a typo, and is named as one', () => {
   assert.deepEqual(Object.keys(tree), ['notes.txt']);
 });
 
+test('dataset: sharedBy marks a top-level entry as a share, and only there', () => {
+  const { tree } = load({
+    files: {
+      'Biology 101': { sharedBy: 'liam', children: { 'syllabus.pdf': { text: 'hi' } } },
+      Documents: { children: { 'Example.md': { text: '# hi' } } },
+      'welcome.txt': { sharedBy: 'liam', text: 'hi' },
+    },
+  });
+
+  assert.equal(tree['Biology 101'].sharedBy, 'liam');
+  assert.equal(tree['welcome.txt'].sharedBy, 'liam');
+  assert.equal(tree.Documents.sharedBy, undefined, 'skeleton content has no sharedBy at all');
+
+  // Nested underneath a shared folder -- refused, because a real Nextcloud
+  // share is granted on the whole folder, not file-by-file, and a per-file
+  // sharedBy here would silently do nothing (shareOwnerOf only ever looks at
+  // the top-level segment).
+  assert.match(
+    messageFrom({
+      files: {
+        'Biology 101': {
+          sharedBy: 'liam',
+          children: { Lectures: { sharedBy: 'liam', children: {} } },
+        },
+      },
+    }),
+    /files\."Biology 101"\.children\."Lectures"\.sharedBy: only makes sense on a top-level entry/
+  );
+});
+
 test('dataset: list ids are minted with the app\'s own slug rule, not a second one', () => {
   // The uri a dataset writes is what the app slugifies into `/tasks/<slug>`
   // (src/nextcloud/caldav.js). A second slugifier here meant "Café" became
@@ -484,7 +514,28 @@ test('dataset: content types are inferred from the extension, case and all', () 
 test('dataset: the demo dataset that ships with the repo is one of the valid ones', () => {
   const { tree, calendars } = loadDataset(join(REPO, 'demo', 'dataset.json'));
 
-  assert.deepEqual(Object.keys(tree).sort(), ['Biology 101', 'Essays', 'Math 210']);
+  assert.deepEqual(Object.keys(tree).sort(), [
+    'Biology 101',
+    'Documents',
+    'Essays',
+    'Math 210',
+    'Nextcloud Manual.pdf',
+    'Nextcloud.png',
+    'Photos',
+    'Readme.md',
+    'Templates',
+  ]);
+  // Only the three course folders are actually shared; the rest is the
+  // skeleton content a fresh Nextcloud account seeds itself with, kept in the
+  // dataset specifically so the demo proves the app hides it (see
+  // home-route.test.js and browse.spec.js for the app-level assertions).
+  assert.deepEqual(
+    Object.entries(tree)
+      .filter(([, node]) => node.sharedBy)
+      .map(([name]) => name)
+      .sort(),
+    ['Biology 101', 'Essays', 'Math 210']
+  );
   assert.deepEqual(
     calendars.map((c) => c.displayName),
     ['School', 'Apartment']

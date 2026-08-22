@@ -296,6 +296,8 @@ export default async function registerMediaRoutes(app) {
     const pdfViewerUrl =
       `/public/pdfjs/web/viewer.html?file=${encodeURIComponent(contentUrl)}#zoom=page-width`;
 
+    const mode = rendersInline(entry) ? kind : 'unsupported';
+
     return reply.view('view', {
       title: entry.name,
       viewer: request.viewer,
@@ -304,7 +306,7 @@ export default async function registerMediaRoutes(app) {
       // `rendersInline` and `safeContentType` read one table, so the viewer
       // can only pick an image/pdf mode for bytes /content/ will serve as
       // something the browser paints.
-      mode: rendersInline(entry) ? kind : 'unsupported',
+      mode,
       contentUrl,
       pdfViewerUrl,
       icon: ICONS[kind] ?? ICONS.file,
@@ -314,6 +316,9 @@ export default async function registerMediaRoutes(app) {
       showToggle: true,
       section: 'files',
       breadcrumbs: [],
+      // Only a photo or a PDF gets the full-screen chrome (public/viewer.js) --
+      // the "we can't show this" page has nothing worth clearing space for.
+      immersive: mode === 'image' || mode === 'pdf',
     });
   });
 }

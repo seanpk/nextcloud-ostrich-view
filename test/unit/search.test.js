@@ -36,7 +36,16 @@ function xml(body, status = 207) {
   return new Response(body, { status, headers: { 'Content-Type': 'application/xml' } });
 }
 
-/** The mock's SEARCH answer for a `since`, as the real one would compute it. */
+/**
+ * The mock's SEARCH answer for a `since`, as the real one would compute it.
+ *
+ * `tree: DEFAULT_TREE` is what makes each result carry its true ownership
+ * (real Nextcloud's SEARCH matches on mtime alone, regardless of who owns the
+ * file -- the skeleton content is just as eligible as a real share, and
+ * `Photos/Frog.jpg` is stamped recent for exactly this reason). Parsing this
+ * answer is deliberately unfiltered by share status; see parseSearchResults's
+ * doc comment for where that filtering actually happens.
+ */
 function searchAnswer(since, davRoot = DAV_ROOT) {
   const files = walkFiles(DEFAULT_TREE)
     .filter(({ node }) => Date.parse(node.lastModified ?? FIXED_LAST_MODIFIED) > since.getTime())
@@ -45,7 +54,7 @@ function searchAnswer(since, davRoot = DAV_ROOT) {
         Date.parse(b.node.lastModified ?? FIXED_LAST_MODIFIED) -
         Date.parse(a.node.lastModified ?? FIXED_LAST_MODIFIED)
     );
-  return buildSearchMultistatus({ davRoot, files });
+  return buildSearchMultistatus({ davRoot, files, tree: DEFAULT_TREE });
 }
 
 // --- Request building -------------------------------------------------------
@@ -93,8 +102,13 @@ test('buildSearchBody: a scope with XML-hostile characters is escaped', () => {
 test('parseSearchResults: files only, newest first', () => {
   const entries = parseSearchResults(searchAnswer(SINCE), { davRoot: DAV_ROOT, since: SINCE });
 
+  // Photos/Frog.jpg is in here: Nextcloud's SEARCH matches on mtime alone,
+  // regardless of ownership, and parseSearchResults is deliberately
+  // unfiltered by share status -- see searchChangedSince below for where the
+  // skeleton content actually gets dropped.
   assert.deepEqual(entries.map((e) => e.path), [
     'Biology 101/Lab Reports/microscope.jpg',
+    'Photos/Frog.jpg',
     'Biology 101/Lectures/Week 2 Notes.pdf',
   ]);
   assert.ok(entries.every((e) => !e.isFolder));
@@ -147,7 +161,7 @@ test('parseSearchResults: re-applies the date filter rather than trusting the se
   const everything = searchAnswer(new Date(0));
   const entries = parseSearchResults(everything, { davRoot: DAV_ROOT, since: SINCE });
 
-  assert.equal(entries.length, 2, 'only genuinely newer files may reach the page');
+  assert.equal(entries.length, 3, 'only genuinely newer files may reach the page');
 });
 
 test('parseSearchResults: honours the limit', () => {
@@ -207,20 +221,31 @@ test('searchChangedSince: a 405 is SearchUnsupportedError, not a page-breaking f
 
 // --- The walk fallback ------------------------------------------------------
 
-/** A client that answers PROPFIND from the fixture tree, counting requests. */
-function walkingClient(tree = DEFAULT_TREE, { onRequest } = {}) {
+/**
+ * A client that answers PROPFIND from the fixture tree, counting requests.
+ *
+ * `shareAware` defaults to true only for the real `DEFAULT_TREE` (which has
+ * honest `sharedBy` markers on its real shares and none on its skeleton
+ * content) -- tests that hand in an unrelated custom tree (e.g. the
+ * depth-cap fixture below) get the pre-M5 "everything is a share" behaviour,
+ * since sharing status has nothing to do with what those are testing.
+ */
+function walkingClient(tree = DEFAULT_TREE, { onRequest, shareAware = tree === DEFAULT_TREE } = {}) {
   return client(async (url, init) => {
     const path = decodeURIComponent(new URL(url).pathname.slice(DAV_ROOT.length + 1));
     onRequest?.(path, init);
     const node = resolveNode(tree, path);
     if (!node) return new Response('', { status: 404 });
-    return xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node }));
+    return xml(
+      buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node, tree: shareAware ? tree : null })
+    );
   });
 }
 
 test('walkChangedSince: finds the same files SEARCH would, newest first', async () => {
   const { entries, truncated } = await walkChangedSince(walkingClient(), SINCE);
 
+  // Photos/Frog.jpg -- newer, but skeleton content -- must not be here.
   assert.deepEqual(entries.map((e) => e.path), [
     'Biology 101/Lab Reports/microscope.jpg',
     'Biology 101/Lectures/Week 2 Notes.pdf',
@@ -232,6 +257,9 @@ test('walkChangedSince: visits every folder in the fixture exactly once', async 
   const visited = [];
   await walkChangedSince(walkingClient(DEFAULT_TREE, { onRequest: (p) => visited.push(p) }), SINCE);
 
+  // Documents, Photos and Templates are deliberately absent: pruned as
+  // skeleton content before ever being queued, not merely filtered out of
+  // the results afterward. Fewer PROPFINDs, not just a shorter list.
   assert.deepEqual(
     [...visited].sort(),
     [
@@ -300,7 +328,7 @@ test('walkChangedSince: a folder that vanishes mid-walk does not lose the sectio
     if (path === 'Biology 101/Lectures') return new Response('gone', { status: 404 });
     const node = resolveNode(DEFAULT_TREE, path);
     if (!node) return new Response('', { status: 404 });
-    return xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node }));
+    return xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node, tree: DEFAULT_TREE }));
   });
 
   const { entries } = await walkChangedSince(nc, SINCE);
@@ -339,7 +367,7 @@ test('findChangedSince: falls back to the walk, and never re-probes SEARCH', asy
     if (init.method === 'SEARCH') return new Response('no', { status: 405 });
     const path = decodeURIComponent(new URL(url).pathname.slice(DAV_ROOT.length + 1));
     const node = resolveNode(DEFAULT_TREE, path);
-    return node ? xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node })) : new Response('', { status: 404 });
+    return node ? xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node, tree: DEFAULT_TREE })) : new Response('', { status: 404 });
   });
 
   const first = await findChangedSince(nc, SINCE, { memo });
@@ -361,7 +389,7 @@ function failingSearchClient(failure) {
     if (init.method === 'SEARCH') return failure();
     const path = decodeURIComponent(new URL(url).pathname.slice(DAV_ROOT.length + 1));
     const node = resolveNode(DEFAULT_TREE, path);
-    return node ? xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node })) : new Response('', { status: 404 });
+    return node ? xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node, tree: DEFAULT_TREE })) : new Response('', { status: 404 });
   });
 }
 
@@ -444,7 +472,7 @@ test('findChangedSince: SEARCH recovering after a bad minute is used again', asy
     }
     const path = decodeURIComponent(new URL(url).pathname.slice(DAV_ROOT.length + 1));
     const node = resolveNode(DEFAULT_TREE, path);
-    return node ? xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node })) : new Response('', { status: 404 });
+    return node ? xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node, tree: DEFAULT_TREE })) : new Response('', { status: 404 });
   });
 
   assert.equal((await findChangedSince(nc, SINCE, { memo })).strategy, 'walk');

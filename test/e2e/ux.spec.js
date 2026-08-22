@@ -11,7 +11,8 @@ import { test, expect, login } from './fixtures.js';
 const MIN_TAP = 44; // px -- the WCAG/Apple floor. Our design aims far above it.
 
 /** Every visible thing you can tap or click. */
-const INTERACTIVE = 'a.tile, a.back, .btn, .footer__logout, .toggle__option, .login__input';
+const INTERACTIVE =
+  'a.tile, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
 
 const PAGES = [
   { name: 'home', path: '/', needsLogin: true },
@@ -98,6 +99,31 @@ test('tiles sit one per row on a phone and share rows on a desktop', async ({ pa
   if (isMobile) {
     expect(distinctRows, 'phone layout should stack every tile').toBe(boxes.length);
   }
+});
+
+test('in full screen, tap targets and horizontal scroll still meet the same bar', async ({ page }) => {
+  await login(page);
+  await page.goto('/view/Biology%20101/Lectures/cell%20diagram.png');
+  await page.getByRole('button', { name: 'Full screen' }).click();
+  await expect(page.locator('body')).toHaveClass(/is-immersive/);
+
+  const elements = page.locator(INTERACTIVE);
+  const count = await elements.count();
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i += 1) {
+    const element = elements.nth(i);
+    if (!(await element.isVisible())) continue;
+    const box = await element.boundingBox();
+    expect(box, `no box for element #${i}`).not.toBeNull();
+    expect(box.height).toBeGreaterThanOrEqual(MIN_TAP);
+    expect(box.width).toBeGreaterThanOrEqual(MIN_TAP);
+  }
+
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
 });
 
 test('the viewport meta tag allows zooming (never user-scalable=no)', async ({ page }) => {

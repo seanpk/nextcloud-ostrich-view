@@ -75,10 +75,21 @@ test('toTile: the preview URL changes when the file does', () => {
   assert.notEqual(before, after, 'a changed file must not serve a cached thumbnail');
 });
 
-test('toTile: PDFs deliberately keep the flat icon', () => {
-  // Nextcloud ships with OC\Preview\PDF disabled, so asking would only ever
-  // round-trip to a 404 and fall back to this icon anyway.
+test('toTile: PDFs get a preview URL too, now that Imaginary can render one', () => {
+  // Our deployment runs Nextcloud AIO's Imaginary preview provider
+  // (PDF_Previews.md), which does render PDF thumbnails. A PDF on a plain
+  // Nextcloud without that provider still falls back to the icon -- the
+  // request just 404s, exactly like any other unsupported type, which is
+  // src/nextcloud/previews.js's job, not toTile's.
   const tile = toTile(entry({ name: 'syllabus.pdf', path: 'syllabus.pdf', contentType: 'application/pdf' }));
+  assert.equal(tile.previewUrl, '/preview/908603?v=000ddd3babcd&k=pdf');
+  assert.equal(tile.icon, '/public/icons/pdf.svg', 'still the fallback icon, if the preview 404s');
+});
+
+test('toTile: a PDF with no fileId or etag falls back to the icon, same as an image would', () => {
+  const tile = toTile(
+    entry({ name: 'syllabus.pdf', path: 'syllabus.pdf', contentType: 'application/pdf', fileId: null })
+  );
   assert.equal(tile.previewUrl, null);
   assert.equal(tile.icon, '/public/icons/pdf.svg');
 });

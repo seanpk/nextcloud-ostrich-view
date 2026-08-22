@@ -110,7 +110,7 @@ data/            # runtime: state.json, preview-cache/ (gitignored)
 ## Verify early (5-minute curl tests, before the milestone that depends on each)
 
 1. Preview endpoint works for files *shared to* the account (before M2).
-2. PDF tile previews: Nextcloud disables the PDF preview provider by default — default plan is a PDF icon on tiles (the PDF.js viewer itself doesn't need it); enabling `OC\Preview\PDF` is an optional admin tweak.
+2. PDF tile previews: Nextcloud disables PDF thumbnails by default -- a PDF tile falls back to a flat icon (the PDF.js viewer itself doesn't need one). Our deployment enables Nextcloud AIO's Imaginary provider instead of the old `OC\Preview\PDF`/ImageMagick route; see `PDF_Previews.md`.
 3. Sharing a Tasks list with `ostrich-viewer` actually surfaces it under its CalDAV home (before M3).
 4. WebDAV SEARCH works on this instance (before M4); else use the walk fallback.
 5. LAN access: internal hostname in `trusted_domains`, no HTTPS-redirect loop (before M5).

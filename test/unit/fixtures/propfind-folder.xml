@@ -55,6 +55,13 @@
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
+    <d:propstat>
+      <d:prop>
+        <oc:permissions/>
+        <oc:owner-id/>
+      </d:prop>
+      <d:status>HTTP/1.1 404 Not Found</d:status>
+    </d:propstat>
   </d:response>
   <d:response>
     <d:href>/remote.php/dav/files/ostrich-viewer/Biology%20101/cell%20diagram.png</d:href>
@@ -66,6 +73,8 @@
         <d:resourcetype/>
         <oc:size>44210</oc:size>
         <d:getetag>W/&quot;abc123&quot;</d:getetag>
+        <oc:permissions>SRGDNVCK</oc:permissions>
+        <oc:owner-id>liam</oc:owner-id>
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>

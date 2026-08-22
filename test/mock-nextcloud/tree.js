@@ -7,7 +7,10 @@ import { join } from 'node:path';
  *
  * Shaped like what the owner would actually share: a couple of course folders, a
  * nested sub-folder, a unicode name and a name with spaces (the two things that
- * break naive URL handling), plus the file types the viewer previews.
+ * break naive URL handling), plus the file types the viewer previews -- and,
+ * alongside them, the unmarked skeleton content (`Documents`, `Photos`, etc.)
+ * a freshly created Nextcloud account seeds itself with, which the app must
+ * never show. See `sharedBy` / `shareOwnerOf` below.
  *
  * Every file carries real `bytes` (see assets/, and assets/generate.mjs for how
  * they were made), so `/content/*` and the pdf.js viewer are exercised against
@@ -40,6 +43,15 @@ const png = (extra) => file('image/png', SAMPLE.png, extra);
 const jpg = (extra) => file('image/jpeg', SAMPLE.jpg, extra);
 
 /**
+ * Stand-in thumbnail bytes for a PDF preview, when `createMockNextcloud({
+ * pdfPreviews: true })` is simulating Imaginary. A real Imaginary render is a
+ * scaled rasterization of the PDF's first page; the app only cares that it
+ * gets back real, sniffable image bytes, so the mock hands over this instead
+ * of actually rasterizing anything.
+ */
+export const SAMPLE_PDF_THUMBNAIL = SAMPLE.png;
+
+/**
  * An SVG carrying script, because someone the owner shares a folder with can put
  * one there. It is an `image/*`, so anything keying off "is this an image"
  * would offer it inline -- and inline SVG on our own origin is script on our
@@ -68,9 +80,16 @@ export const FIXED_LAST_MODIFIED = 'Mon, 04 Aug 2025 09:15:00 GMT';
 export const RECENT_LAST_MODIFIED = 'Wed, 06 Aug 2025 18:30:00 GMT';
 export const NEWEST_LAST_MODIFIED = 'Thu, 07 Aug 2025 07:05:00 GMT';
 
+/** The (fictional) owner who shares folders with the viewer account. */
+export const SHARE_OWNER = 'liam';
+
 export const DEFAULT_TREE = {
   'Biology 101': {
     type: 'folder',
+    // Every top-level node the owner actually shared carries `sharedBy` --
+    // see shareOwnerOf() below, and ../../src/nextcloud/shares.js, which is
+    // what reads this signal (as oc:owner-id / oc:permissions) in the real app.
+    sharedBy: SHARE_OWNER,
     children: {
       Lectures: {
         type: 'folder',
@@ -96,6 +115,7 @@ export const DEFAULT_TREE = {
   },
   'Math 210': {
     type: 'folder',
+    sharedBy: SHARE_OWNER,
     children: {
       'Problem Sets': {
         type: 'folder',
@@ -109,11 +129,46 @@ export const DEFAULT_TREE = {
   'Café Notes': {
     // Deliberately unicode + accented: exercises percent-encoding end to end.
     type: 'folder',
+    sharedBy: SHARE_OWNER,
     children: {
       'résumé draft.pdf': pdf(),
     },
   },
-  'welcome.txt': file('text/plain', Buffer.from('Hello from the mock Nextcloud.\n', 'utf8')),
+  'welcome.txt': file('text/plain', Buffer.from('Hello from the mock Nextcloud.\n', 'utf8'), {
+    sharedBy: SHARE_OWNER,
+  }),
+
+  // Nextcloud seeds a brand-new account with content like this the first time
+  // it logs in (README §1 step 2 requires that login) -- unmarked (no
+  // `sharedBy`), exactly as the account's own storage would be. The app is
+  // expected to hide all of it from the home page; see shares.test.js and
+  // home-route.test.js.
+  Documents: {
+    type: 'folder',
+    children: {
+      'Example.md': file('text/markdown', Buffer.from('# Nextcloud\n', 'utf8')),
+    },
+  },
+  Photos: {
+    type: 'folder',
+    children: {
+      // Recent on purpose: proves skeleton content is kept out of "New since
+      // you last looked" too, not just out of the folder grid.
+      'Frog.jpg': jpg({ lastModified: NEWEST_LAST_MODIFIED }),
+    },
+  },
+  Templates: {
+    type: 'folder',
+    children: {
+      'Letter.odt': file(
+        'application/vnd.oasis.opendocument.text',
+        Buffer.from('placeholder', 'utf8')
+      ),
+    },
+  },
+  'Nextcloud.png': png(),
+  'Readme.md': file('text/markdown', Buffer.from('# Welcome\n', 'utf8')),
+  'Nextcloud Manual.pdf': pdf(),
 };
 
 /**
@@ -134,6 +189,38 @@ export function indexByFileId(tree) {
   };
   walk(tree, '');
   return index;
+}
+
+/**
+ * The uid of the share `relPath` lives in, or null for the account's own
+ * content. Ownership is set once, on the top-level entry, and inherited by
+ * everything under it -- there is no per-subfolder override, matching how a
+ * real Nextcloud share works (you share the folder, not each file in it).
+ *
+ * `''` (the root itself) is always null: the root is the account's own DAV
+ * home, never a share of itself.
+ *
+ * @param {object} tree
+ * @param {string} relPath decoded, e.g. "Biology 101/Lectures"
+ * @returns {string|null}
+ */
+export function shareOwnerOf(tree, relPath) {
+  if (!relPath) return null;
+
+  // Walks the path rather than reading only its first segment, so a share can
+  // be mounted below the top -- which is what an instance with `share_folder`
+  // set actually does (`/Shared/Family`). Real Nextcloud flags the mount point
+  // and everything beneath it, so the SHALLOWEST `sharedBy` on the path wins
+  // and children inherit it. A top-level mount still resolves on the first
+  // segment, exactly as before.
+  let children = tree;
+  for (const segment of relPath.split('/')) {
+    const node = children?.[segment];
+    if (!node) return null;
+    if (node.sharedBy) return node.sharedBy;
+    children = node.children;
+  }
+  return null;
 }
 
 /**

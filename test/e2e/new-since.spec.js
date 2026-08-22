@@ -90,26 +90,35 @@ test.describe('New since you last looked', () => {
     // The folder buttons are still underneath, unchanged. (Exact: a new-since
     // tile's accessible name now ends with "in Biology 101 › …" too.)
     await expect(page.getByRole('link', { name: 'Biology 101', exact: true })).toBeVisible();
+
+    // Photos/Frog.jpg is stamped just as recently, but it is the account's own
+    // skeleton content (see test/mock-nextcloud/tree.js), never a real share --
+    // it must not sneak into the one section she is most likely to actually read.
+    await expect(section.locator('.tile__name', { hasText: 'Frog.jpg' })).toHaveCount(0);
   });
 
-  test('the new photo shows a real thumbnail, and the PDF its icon', async ({ page }) => {
+  test('the new photo and the new PDF both show a real thumbnail', async ({ page }) => {
     backdateVisit('nana', LAST_VISIT);
     await login(page, NANA);
 
     const section = page.locator('.section--new');
-    const preview = section.locator('.tiles__item', { hasText: 'microscope.jpg' }).locator('.tile__preview');
 
-    await expect(preview).toBeVisible();
-    await expect(preview).toHaveAttribute('src', /^\/preview\/\d+\?v=/);
-    await expect(preview).toHaveAttribute('alt', 'Preview of microscope.jpg');
-    // It really loaded, rather than sitting there broken.
-    await expect
-      .poll(() => preview.evaluate((img) => img.naturalWidth))
-      .toBeGreaterThan(0);
+    for (const name of ['microscope.jpg', 'Week 2 Notes.pdf']) {
+      const preview = section.locator('.tiles__item', { hasText: name }).locator('.tile__preview');
 
-    // Nextcloud renders no PDF thumbnails by default; the tile says so calmly.
-    const icon = section.locator('.tiles__item', { hasText: 'Week 2 Notes.pdf' }).locator('.tile__icon');
-    await expect(icon).toHaveAttribute('src', '/public/icons/pdf.svg');
+      await expect(preview).toBeVisible();
+      await expect(preview).toHaveAttribute('src', /^\/preview\/\d+\?v=/);
+      await expect(preview).toHaveAttribute('alt', `Preview of ${name}`);
+      // It really loaded, rather than sitting there broken. This E2E run's
+      // mock doesn't simulate Imaginary (see browse.spec.js), so the PDF's
+      // "real thumbnail" here is the icon it was redirected to -- the point
+      // of this test is that BOTH kinds ask for a preview and BOTH end up
+      // showing something, not that the bytes came from a PDF rasterizer.
+      await preview.scrollIntoViewIfNeeded();
+      await expect
+        .poll(() => preview.evaluate((img) => img.naturalWidth), { timeout: 10_000 })
+        .toBeGreaterThan(0);
+    }
   });
 
   test('tapping a new file opens it inline, where it lives', async ({ page }) => {

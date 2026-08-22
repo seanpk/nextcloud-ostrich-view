@@ -26,6 +26,36 @@
   --topbar-h: 4.5rem;
   --radius: 14px;
   --tap: 3.5rem; /* 56px minimum for anything tappable */
+
+  /* The viewer's own bottom bar (the full-screen toggle), and the total
+     chrome height a /view/ page has to leave room for -- topbar + safe-area
+     inset + this bar + a little breathing room. Immersive mode collapses
+     this back to 0 (see the Fullscreen viewer section below). */
+  --viewer-bar-h: 4.5rem;
+  --viewer-chrome: calc(
+    var(--topbar-h) + env(safe-area-inset-top, 0px) + var(--viewer-bar-h) + 1.6rem
+  );
+}
+
+/* [hidden] is the progressive-enhancement gate on every JS-only control
+   (the password reveal, the full-screen button): with the script absent, the
+   attribute never comes off and the control never shows. .btn's own
+   `display: inline-flex` would otherwise beat the UA's [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
+/* Visually hidden but still reachable by a screen reader -- used for the
+   viewer's status announcements and its heading once immersive. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 *,
@@ -245,22 +275,35 @@ a {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1fr; /* phone: one full-width button per row */
-  gap: 0.75rem;
+  grid-template-columns: 1fr; /* phone: one full-width card per row */
+  gap: 1rem;
 }
 
+/*
+ * A file/folder tile is a card: a thumbnail band on top, the name and its
+ * muted second line below -- "previews of the document/photo with the name
+ * listed below", the way the project brief describes it. One macro
+ * (_tiles.njk) feeds home, every folder listing and "new since you last
+ * looked" alike, so this is the one place that shape is drawn.
+ *
+ * `.tile--tasklist` (tasks-home.njk) is a different component wearing the
+ * same base class for its chrome (card background/border/radius) -- its own
+ * layout is restored explicitly further down, in the Tasks section, rather
+ * than inheriting any of the card-specific rules below.
+ */
 .tile {
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  overflow: hidden; /* keeps the thumbnail's square corners inside the card's round ones */
   width: 100%;
-  min-height: 5.5rem; /* 88px -- comfortably above the 44px floor */
-  padding: 0.9rem 1rem;
   background: var(--card);
   border: 2px solid var(--line);
   border-radius: var(--radius);
   color: var(--ink);
   text-decoration: none;
+}
+
+.tile:not(.tile--tasklist) {
+  flex-direction: column;
 }
 
 a.tile:hover,
@@ -270,37 +313,60 @@ a.tile:focus-visible {
 }
 
 .tile--static {
-  /* M1: files aren't openable yet, so they read as labels, not buttons. */
+  /* A file this app cannot open inline reads as a label, not a button. */
   background: var(--card);
   border-style: dashed;
   color: var(--ink-soft);
 }
 
-.tile__thumb {
+.tile:not(.tile--tasklist) .tile__thumb {
   flex: 0 0 auto;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: 100%;
+  /* A fixed height, not an aspect-ratio: on a phone the card is nearly the
+     full viewport width, and a photo-style ratio (e.g. 16:10) against that
+     width would make the band taller than the screen. */
+  height: 8rem;
+  background: var(--paper);
 }
 
-.tile__icon,
 .tile__preview {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-}
-
-.tile__preview {
-  border-radius: 6px;
   object-fit: cover;
 }
 
-.tile__text {
+/*
+ * Documents are shown whole, not cropped to the middle.
+ *
+ * Two reasons, and both matter. A real thumbnail of a page is worth seeing in
+ * full -- a centre crop of A4 is a rectangle of body text with the title cut
+ * off. And when there is NO thumbnail (any Nextcloud without a PDF-capable
+ * preview provider -- see PDF_Previews.md) the /preview/ route redirects to
+ * the flat icon in public/icons/, which arrives in this very element: under
+ * `cover` it gets blown up to fill an 8rem band and cropped, which reads as a
+ * broken image rather than as a fallback.
+ */
+.tile--pdf .tile__preview {
+  object-fit: contain;
+}
+
+/* A flat icon (folder, or no thumbnail available) stays a fixed size and
+   centred in the band, rather than stretching to fill it. */
+.tile:not(.tile--tasklist) .tile__icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  object-fit: contain;
+}
+
+.tile:not(.tile--tasklist) .tile__text {
   display: flex;
   flex-direction: column;
-  min-width: 0; /* lets long names wrap inside the flex row */
+  gap: 0.15rem;
+  min-width: 0; /* lets long names wrap instead of widening the card */
+  padding: 0.85rem 1rem;
 }
 
 .tile__name {
@@ -316,7 +382,7 @@ a.tile:focus-visible {
 }
 
 /* "in Biology 101 › Lectures" -- context for a tile shown out of its folder.
-   Long course names must wrap rather than push the tile past the viewport. */
+   Long course names must wrap rather than push the card past the viewport. */
 .tile__meta--folder {
   overflow-wrap: anywhere;
 }
@@ -333,27 +399,53 @@ a.tile:focus-visible {
 
 /* ---------- Inline viewer (/view/*) ---------- */
 
+/* A viewer page (photo or PDF) reclaims the margin an ordinary page keeps for
+   body text -- there is no paragraph competing with the document for width. */
+.is-viewer .page {
+  max-width: 64rem;
+  padding-inline: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
 .viewer {
   margin: 0;
+}
+
+/*
+ * The whole photo fits on screen at once, scaled to fill the space (up as
+ * well as down) -- nothing scrolls, so a tap unambiguously means "toggle the
+ * chrome" rather than "was that a scroll or a tap". Pinch-zoom (never
+ * disabled; see the viewport meta tag) is how she reads fine print on a
+ * photographed page. Same shape as .viewer--pdf/.viewer__pdf below: the
+ * figure gets the box, the media inside it fills that box via object-fit.
+ */
+.viewer--image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(100dvh - var(--viewer-chrome));
+  min-height: 16rem;
 }
 
 .viewer__image {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
   border: 2px solid var(--line);
   border-radius: var(--radius);
   background: var(--card);
 }
 
 /*
- * The PDF frame takes whatever height is left below the top bar and title.
- * `dvh` keeps it honest on phones, where the browser chrome comes and goes;
- * the min-height stops it collapsing to nothing in a short landscape window.
+ * The PDF frame takes whatever height is left below the top bar and the
+ * viewer's own bottom bar. `dvh` keeps it honest on phones, where the browser
+ * chrome comes and goes; the min-height stops it collapsing to nothing in a
+ * short landscape window.
  */
 .viewer--pdf {
-  height: calc(100dvh - var(--topbar-h) - 9rem);
-  min-height: 20rem;
+  height: calc(100dvh - var(--viewer-chrome));
+  min-height: 16rem;
 }
 
 .viewer__pdf {
@@ -386,6 +478,83 @@ a.tile:focus-visible {
   margin: 0 0 1.5rem;
 }
 
+/* ---------- Full-screen viewer ---------- */
+
+/*
+ * The bar under the document, holding the full-screen toggle. Same shape in
+ * and out of immersive mode; immersive just pins it to the bottom of the
+ * viewport instead of letting it sit in the page's normal flow.
+ */
+.viewer__bar {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
+/*
+ * `is-immersive` is the one class public/viewer.js ever sets on <body>, and
+ * everything else about full-screen mode follows from it -- the Fullscreen
+ * API (requestFullscreen) is called too, but only as a best-effort extra on
+ * top of this; on a phone it frequently isn't available at all (notably
+ * non-video elements on iOS Safari), so this class is what actually has to
+ * do the work.
+ */
+.is-immersive {
+  --viewer-chrome: 0px;
+  overflow: hidden;
+}
+
+.is-immersive .page {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  max-width: none;
+  padding: 0;
+  background: #0e1013;
+}
+
+/* .viewer--pdf/.viewer--image already read `--viewer-chrome`, which is 0px
+   here, so their height rules resolve to the full viewport without a
+   separate override -- only the border needs dropping, edge to edge. */
+.is-immersive .viewer__pdf,
+.is-immersive .viewer__image {
+  border: 0;
+  border-radius: 0;
+}
+
+/* Above the pinned .page (z-index 40), so Back stays reachable over the
+   document rather than under it. */
+.is-immersive .topbar {
+  z-index: 60;
+  background: rgb(255 255 255 / 0.94);
+}
+
+/* Files/Tasks is noise once she is already looking at one file. */
+.is-immersive .toggle {
+  display: none;
+}
+
+.is-immersive .viewer__bar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 60;
+  margin-top: 0;
+  padding: 0.6rem 0.9rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  background: rgb(255 255 255 / 0.94);
+}
+
+/*
+ * Tapping the document hides both bars. `visibility: hidden`, not just
+ * `opacity: 0` -- hidden chrome must leave the tab order and the
+ * accessibility tree, not merely fade from view.
+ */
+.is-immersive.is-chrome-hidden .topbar,
+.is-immersive.is-chrome-hidden .viewer__bar {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 0s linear 160ms;
+}
+
 /* ---------- Login ---------- */
 
 .login__logo {
@@ -409,7 +578,17 @@ a.tile:focus-visible {
   color: var(--ink-soft);
 }
 
+/* Input + reveal button as one row, so the button never pushes the field
+   past the form's own max-width and the row never scrolls sideways. */
+.login__field {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
 .login__input {
+  flex: 1 1 auto;
+  min-width: 0; /* lets the input shrink for the button instead of overflowing */
   min-height: var(--tap);
   font-size: 1.35rem;
   padding: 0.6rem 0.85rem;
@@ -423,6 +602,38 @@ a.tile:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 1px;
   border-color: var(--accent);
+}
+
+/* Show/hide the passphrase. Square-ish and at least --tap in both
+   dimensions so it clears the same 44px floor as everything else, even
+   though its label is short. */
+.login__reveal {
+  flex: 0 0 auto;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 1rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.login__reveal[aria-pressed='true'] {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+
+.login__reveal:hover,
+.login__reveal:focus-visible {
+  border-color: var(--accent);
+}
+
+.login__reveal:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .btn {
@@ -447,6 +658,17 @@ a.tile:focus-visible {
 .btn--primary:hover,
 .btn--primary:focus-visible {
   background: var(--accent-dark);
+}
+
+.btn--quiet {
+  background: var(--card);
+  color: var(--accent-dark);
+  border-color: var(--line);
+}
+
+.btn--quiet:hover,
+.btn--quiet:focus-visible {
+  border-color: var(--accent);
 }
 
 .login__submit {
@@ -517,10 +739,6 @@ a.tile:focus-visible {
     grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
   }
 
-  .tile {
-    min-height: 6rem;
-  }
-
   .page__title {
     font-size: 2.2rem;
   }
@@ -555,10 +773,31 @@ a.tile:focus-visible {
 
 /* ---------- Task-list tiles ---------- */
 
+/*
+ * A task list tile is not a card with a preview band -- it is the original
+ * row layout (a colour block beside the name), restored explicitly here since
+ * the shared .tile base above now defaults to the file-tile card shape. See
+ * the comment on .tile in the Tiles section.
+ */
+.tile--tasklist {
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  min-height: 5.5rem; /* 88px -- comfortably above the 44px floor */
+  padding: 0.9rem 1rem;
+}
+
 .tile--tasklist .tile__thumb {
   /* The colour block stands in for a thumbnail on these tiles. */
+  flex: 0 0 auto;
   width: 2rem;
   height: 3rem;
+}
+
+.tile--tasklist .tile__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* lets a long list name wrap instead of overflowing the row */
 }
 
 .tasklist__mark {
