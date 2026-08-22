@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shareSignal, selectReceivedShares } from '../../src/nextcloud/shares.js';
+import {
+  shareSignal,
+  selectReceivedShares,
+  shareListingRoots,
+} from '../../src/nextcloud/shares.js';
 
 /**
  * `shareSignal` combines two independent PROPFIND properties into one
@@ -104,4 +108,60 @@ test('selectReceivedShares: an empty list is handled', () => {
   const result = selectReceivedShares([], { user: USER });
   assert.deepEqual(result.entries, []);
   assert.equal(result.sawSignal, false);
+});
+
+/**
+ * `shareListingRoots` decides WHICH folders get listed, which is the half of
+ * the problem `shareSignal` cannot see: on an instance with `share_folder` set,
+ * the shares are not in the folder being filtered at all.
+ */
+
+test('shareListingRoots: with no shares, only the files home is listed', () => {
+  assert.deepEqual(shareListingRoots([]), ['']);
+});
+
+test('shareListingRoots: shares mounted at the top need nothing extra', () => {
+  // A plain instance with no share_folder: '' already covers these.
+  assert.deepEqual(shareListingRoots(['Biology 101', 'Math 210']), ['']);
+});
+
+test('shareListingRoots: a share_folder adds its container, files home first', () => {
+  // The case that was rendering an empty page: /Shared is owned by the viewer
+  // account, so filtering the root drops it and everything under it.
+  assert.deepEqual(shareListingRoots(['Shared/Family']), ['', 'Shared']);
+});
+
+test('shareListingRoots: several shares in one container list it once', () => {
+  assert.deepEqual(shareListingRoots(['Shared/Family', 'Shared/Photos', 'Shared/Recipes']), [
+    '',
+    'Shared',
+  ]);
+});
+
+test('shareListingRoots: mixed depths are all covered', () => {
+  // A group folder mounted at the top alongside ordinary shares under
+  // share_folder -- the root listing catches the first, 'Shared' the rest.
+  assert.deepEqual(shareListingRoots(['Team', 'Shared/Family']), ['', 'Shared']);
+});
+
+test('shareListingRoots: the files home is always first, whatever the input order', () => {
+  const roots = shareListingRoots(['Shared/Family']);
+  assert.equal(roots[0], '', 'the files home is listed unconditionally');
+});
+
+test('shareListingRoots: a container nested inside a share is not listed', () => {
+  // Listing 'Shared/Family' would spill that share's own contents onto the home
+  // page as though each child were a share in its own right.
+  assert.deepEqual(shareListingRoots(['Shared/Family', 'Shared/Family/Sub']), ['', 'Shared']);
+});
+
+test('shareListingRoots: deeper containers are listed at their own level', () => {
+  assert.deepEqual(shareListingRoots(['a/b/c']), ['', 'a/b']);
+});
+
+test('shareListingRoots: survives junk without throwing', () => {
+  // The targets come from a network response; the caller has already filtered,
+  // but this must not be the thing that breaks the page if that ever changes.
+  assert.deepEqual(shareListingRoots(undefined), ['']);
+  assert.deepEqual(shareListingRoots(null), ['']);
 });

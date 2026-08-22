@@ -1,6 +1,7 @@
 import { propfind, sortEntries } from '../nextcloud/webdav.js';
 import { findChangedSince, SEARCH_LIMIT } from '../nextcloud/search.js';
-import { selectReceivedShares } from '../nextcloud/shares.js';
+import { selectReceivedShares, shareListingRoots } from '../nextcloud/shares.js';
+import { listReceivedShareTargets } from '../nextcloud/ocs.js';
 import { toTiles } from '../lib/tiles.js';
 import { buildNewSince, formatVisitLabel, NEW_SINCE_CAP } from '../lib/new-since.js';
 
@@ -13,11 +14,19 @@ import { buildNewSince, formatVisitLabel, NEW_SINCE_CAP } from '../lib/new-since
  *    PREVIOUS sitting (see src/store/visits.js for why "previous" and not "last
  *    page load").
  *
- * "The top level of everything SHARED with the viewer account" is filtered,
- * not assumed: the account's files home also holds whatever Nextcloud seeded
- * it with on first login (README §1 step 2 requires that login), and the
- * viewer must never see that. See ../nextcloud/shares.js for how a received
- * share is told apart from the account's own content.
+ * "The top level of everything SHARED with the viewer account" is both LOCATED
+ * and filtered, not assumed:
+ *
+ *  - Located, because an instance with a `share_folder` set (Nextcloud's
+ *    default is `/Shared`) mounts received shares one level down, inside a
+ *    folder the account itself owns. ../nextcloud/ocs.js asks where they are.
+ *  - Filtered, because the account's files home also holds whatever Nextcloud
+ *    seeded it with on first login (README §1 step 2 requires that login), and
+ *    the viewer must never see that. ../nextcloud/shares.js tells a received
+ *    share apart from the account's own content.
+ *
+ * Both are needed. Filtering alone shows an empty page whenever a share_folder
+ * is configured; locating alone would let skeleton files through.
  *
  * The new-since half is strictly a bonus. Working out the visit, searching, and
  * building the tiles all happen inside one try/catch: if Nextcloud won't do
@@ -36,9 +45,11 @@ export default async function registerHomeRoutes(app) {
   // server -- and can hand in one with a short TTL and a fake clock.
   const changeCache = app.newSinceCache;
 
-  // Logged at most once per process: see the sawSignal branch below. A page
-  // refreshed all day must not repeat the same warning on every load.
+  // Each logged at most once per process: a page refreshed all day must not
+  // repeat the same warning on every load.
   let warnedNoShareSignal = false;
+  let warnedNoShareLookup = false;
+  let warnedFilteredEverything = false;
 
   /**
    * Advance the visit and work out what to show above the folders.
@@ -127,19 +138,70 @@ export default async function registerHomeRoutes(app) {
     }
   }
 
+  /**
+   * List every folder that can hold a received share, and return their entries
+   * pooled together.
+   *
+   * The files home is always one of them, so the common single-PROPFIND case is
+   * unchanged. A share_folder instance adds exactly one more.
+   *
+   * A root that fails is logged and skipped rather than failing the page -- a
+   * share_folder can be renamed or a share revoked between the OCS answer and
+   * the listing. If they ALL fail the first error is rethrown, so a genuinely
+   * unreachable Nextcloud still reaches the "taking a break" page instead of
+   * rendering as an empty one.
+   */
+  async function listShareRoots(request, rootEntries, roots) {
+    if (roots.length === 1) return rootEntries; // just the files home
+
+    const extraRoots = roots.filter((root) => root !== '');
+    const settled = await Promise.allSettled(
+      extraRoots.map((root) => propfind(app.nextcloud, root))
+    );
+
+    const pooled = [...rootEntries];
+    for (const [index, result] of settled.entries()) {
+      if (result.status === 'fulfilled') {
+        pooled.push(...result.value);
+      } else {
+        request.log.warn(
+          { err: result.reason, root: extraRoots[index] },
+          'could not list a share-folder root; its shares will be missing from the home page'
+        );
+      }
+    }
+    return pooled;
+  }
+
   app.get('/', async (request, reply) => {
-    // Concurrent on purpose: the folder listing and the search are independent,
-    // and on a phone the difference between one round trip and two is felt.
-    const [entries, newSince] = await Promise.all([
+    // Concurrent on purpose: the folder listing, the search and the share
+    // lookup are independent, and on a phone the difference between one round
+    // trip and three is felt. The files home is listed unconditionally because
+    // it is a share root whatever the OCS answer turns out to be.
+    const [rootEntries, newSince, received] = await Promise.all([
       propfind(app.nextcloud, ''),
       loadNewSince(request),
+      listReceivedShareTargets(app.nextcloud, { log: request.log }),
     ]);
+
+    if (!received.ok && !warnedNoShareLookup) {
+      warnedNoShareLookup = true;
+      request.log.warn(
+        { reason: received.reason },
+        'could not ask Nextcloud where received shares are mounted; falling back to ' +
+          'the files home alone. If this instance sets share_folder, shares live one ' +
+          'level down and the page will look empty.'
+      );
+    }
+
+    const roots = shareListingRoots(received.targets);
+    const entries = await listShareRoots(request, rootEntries, roots);
 
     // Both halves are in hand: this load counts as a visit. `commit` swallows
     // its own write failures, so this cannot fail the page either.
     await newSince.commit?.();
 
-    // Only the root listing is filtered: a sub-folder is inside a share by
+    // Only these top levels are filtered: a sub-folder is inside a share by
     // construction, so there is nothing left to tell apart once you're in one.
     // `sawSignal` false means Nextcloud sent neither oc:permissions nor
     // oc:owner-id on ANY entry -- an odd or very old server -- in which case
@@ -153,6 +215,20 @@ export default async function registerHomeRoutes(app) {
       request.log.warn(
         'Nextcloud returned no oc:permissions or oc:owner-id for the files home; ' +
           'showing every top-level entry, skeleton content included.'
+      );
+    }
+
+    // Filtering away EVERYTHING is almost always a bug rather than an empty
+    // account, and it renders as "Nothing has been shared with you yet" -- a
+    // sentence that reads like a fact about sharing and gives no hint that a
+    // filter was involved. Worth one line in the log saying so.
+    if (shared.length === 0 && entries.length > 0 && !warnedFilteredEverything) {
+      warnedFilteredEverything = true;
+      request.log.warn(
+        { listed: entries.length, roots },
+        'every top-level entry was judged to be the viewer account\'s own content, so ' +
+          'the home page is empty. If this instance sets share_folder and the OCS share ' +
+          'lookup failed, the shares are one level down and were never listed.'
       );
     }
 

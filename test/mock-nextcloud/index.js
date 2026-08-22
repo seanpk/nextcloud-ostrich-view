@@ -270,6 +270,15 @@ export function createMockNextcloud(options = {}) {
   const password = options.password ?? TEST_APP_PASSWORD;
   let searchStatus = options.searchStatus ?? null;
   let shareProps = options.shareProps ?? true;
+  // What the OCS Share API reports as shared WITH this account.
+  //   undefined -> derived from the tree: every top-level node carrying
+  //                `sharedBy`, mounted at the top. A plain instance with no
+  //                share_folder, which is what most tests want.
+  //   null      -> the endpoint 404s, as if files_sharing were unavailable.
+  //                How a test exercises the home page's fallback path.
+  //   [...]     -> explicit `file_target` values, e.g. ['/Shared/Family'] for
+  //                an instance with share_folder set.
+  let receivedShares = options.receivedShares;
   let pdfPreviews = options.pdfPreviews ?? false;
   const davRoot = davRootFor(user);
   const requests = [];
@@ -320,6 +329,11 @@ export function createMockNextcloud(options = {}) {
 
     if (req.method === 'GET' && pathname === '/index.php/core/preview') {
       handlePreview(req, res, new URLSearchParams(rawQuery));
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/ocs/v2.php/apps/files_sharing/api/v1/shares') {
+      handleOcsShares(req, res, new URLSearchParams(rawQuery));
       return;
     }
 
@@ -483,6 +497,64 @@ export function createMockNextcloud(options = {}) {
    * icon" (200), and a mock that silently tolerated its absence would never
    * catch a regression that dropped it from the request.
    */
+  /**
+   * The OCS Share API, incoming direction only -- see ../../src/nextcloud/ocs.js.
+   *
+   * Answers 404 when `receivedShares` is null, which is what an instance
+   * without files_sharing (or a request the app is not allowed to make) looks
+   * like, and what the home page's fallback is written against.
+   */
+  function handleOcsShares(req, res, query) {
+    // Derived rather than fixed, because setTree() can swap the fixture after
+    // the mock is built and the two must not drift apart.
+    const targets =
+      receivedShares === undefined
+        ? Object.entries(tree)
+            .filter(([, node]) => node?.sharedBy)
+            .map(([name]) => `/${name}`)
+        : receivedShares;
+
+    if (targets === null) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+
+    // The app must send this header or real Nextcloud answers 401 regardless of
+    // credentials. Enforced here so a regression that drops it fails in tests
+    // rather than only against the real server.
+    if (req.headers['ocs-apirequest'] !== 'true') {
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      res.end('CSRF check failed');
+      return;
+    }
+
+    // Only the incoming direction is implemented; the app asks nothing else.
+    if (query.get('shared_with_me') !== 'true') {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Mock only implements shared_with_me=true');
+      return;
+    }
+
+    const data = targets.map((target, index) => ({
+      id: String(100 + index),
+      share_type: 0,
+      uid_owner: SHARE_OWNER,
+      file_target: target,
+      item_type: 'folder',
+      permissions: 1,
+    }));
+
+    const payload = JSON.stringify({
+      ocs: { meta: { status: 'ok', statuscode: 200, message: 'OK' }, data },
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(payload),
+    });
+    res.end(payload);
+  }
+
   function handlePreview(req, res, params) {
     const fileId = Number(params.get('fileId'));
     if (!Number.isInteger(fileId)) {
@@ -590,6 +662,15 @@ export function createMockNextcloud(options = {}) {
     /** true simulates Imaginary rendering real PDF thumbnails. */
     setPdfPreviews(next) {
       pdfPreviews = next ?? false;
+    },
+    /**
+     * What the OCS Share API reports. `undefined` derives it from the tree,
+     * `null` makes the endpoint 404 (the fallback path), an array sets the
+     * `file_target` values verbatim -- which is how a share_folder instance is
+     * simulated.
+     */
+    setReceivedShares(next) {
+      receivedShares = next;
     },
     url() {
       if (boundPort === null) throw new Error('Mock Nextcloud is not started');

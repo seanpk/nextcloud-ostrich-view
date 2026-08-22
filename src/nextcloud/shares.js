@@ -80,3 +80,45 @@ export function selectReceivedShares(entries, { user }) {
 
   return { entries: kept, dropped: list.length - kept.length, sawSignal };
 }
+
+/**
+ * Which folders must be listed to show every received share as a tile?
+ *
+ * Always includes the files home (`''`). Received shares that ARE mounted at
+ * the top show up there, and so do things the OCS Share API never reports at
+ * all -- a group folder arrives as a `M`-flagged mount rather than a share, and
+ * `selectReceivedShares` is what catches it.
+ *
+ * Then one entry per distinct PARENT of a share target. With
+ * `share_folder = /Shared`, targets look like `Shared/Family`, the parent is
+ * `Shared`, and listing it yields the shares as its children -- each carrying
+ * `S` and a foreign owner, so the filter passes them through. The container
+ * folder itself is dropped from the root listing by that same filter, since the
+ * account owns it, which is exactly right: its children are listed separately
+ * and would otherwise appear twice.
+ *
+ * A parent that sits INSIDE another target is skipped. Listing it would spill
+ * one share's contents onto the home page as if they were shares themselves.
+ * Nextcloud does not normally nest a mount inside another mount, but the cost
+ * of being wrong here is a confusing home page, and the guard is one line.
+ *
+ * @param {string[]} targets relative paths from listReceivedShareTargets()
+ * @returns {string[]} relative folder paths to PROPFIND, `''` first
+ */
+export function shareListingRoots(targets) {
+  const list = Array.isArray(targets) ? targets : [];
+  const roots = [''];
+
+  const isInsideATarget = (path) =>
+    list.some((target) => path === target || path.startsWith(`${target}/`));
+
+  for (const target of list) {
+    const slash = target.lastIndexOf('/');
+    if (slash < 0) continue; // mounted at the top; '' already covers it
+    const parent = target.slice(0, slash);
+    if (parent === '' || roots.includes(parent) || isInsideATarget(parent)) continue;
+    roots.push(parent);
+  }
+
+  return roots;
+}

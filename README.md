@@ -88,6 +88,13 @@ ordinary Nextcloud sharing.
    what has been shared **with** the account, not what it happens to own, so
    this skeleton content never reaches the page (see `src/nextcloud/shares.js`).
 
+   Nothing to configure for `share_folder` either. If the instance sets it —
+   Nextcloud's own default is `/Shared` — received shares are mounted inside a
+   folder the account owns rather than at the top of its files home. The app
+   asks the OCS Share API where they actually are (`src/nextcloud/ocs.js`) and
+   lists that folder as well, so the shares appear as tiles either way and the
+   container folder itself does not.
+
 3. **Generate an app password.** While logged in as `ostrich-viewer`:
    Settings → Security → *Devices & sessions* → "Create new app password", name
    it `ostrich-view`. Copy the generated password — it is shown once. This is

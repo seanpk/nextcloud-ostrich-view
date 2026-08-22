@@ -206,8 +206,21 @@ export function indexByFileId(tree) {
  */
 export function shareOwnerOf(tree, relPath) {
   if (!relPath) return null;
-  const top = relPath.split('/')[0];
-  return tree?.[top]?.sharedBy ?? null;
+
+  // Walks the path rather than reading only its first segment, so a share can
+  // be mounted below the top -- which is what an instance with `share_folder`
+  // set actually does (`/Shared/Family`). Real Nextcloud flags the mount point
+  // and everything beneath it, so the SHALLOWEST `sharedBy` on the path wins
+  // and children inherit it. A top-level mount still resolves on the first
+  // segment, exactly as before.
+  let children = tree;
+  for (const segment of relPath.split('/')) {
+    const node = children?.[segment];
+    if (!node) return null;
+    if (node.sharedBy) return node.sharedBy;
+    children = node.children;
+  }
+  return null;
 }
 
 /**
