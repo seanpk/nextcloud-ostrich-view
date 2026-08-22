@@ -338,6 +338,21 @@ a.tile:focus-visible {
   object-fit: cover;
 }
 
+/*
+ * Documents are shown whole, not cropped to the middle.
+ *
+ * Two reasons, and both matter. A real thumbnail of a page is worth seeing in
+ * full -- a centre crop of A4 is a rectangle of body text with the title cut
+ * off. And when there is NO thumbnail (any Nextcloud without a PDF-capable
+ * preview provider -- see PDF_Previews.md) the /preview/ route redirects to
+ * the flat icon in public/icons/, which arrives in this very element: under
+ * `cover` it gets blown up to fill an 8rem band and cropped, which reads as a
+ * broken image rather than as a fallback.
+ */
+.tile--pdf .tile__preview {
+  object-fit: contain;
+}
+
 /* A flat icon (folder, or no thumbnail available) stays a fixed size and
    centred in the band, rather than stretching to fill it. */
 .tile:not(.tile--tasklist) .tile__icon {
