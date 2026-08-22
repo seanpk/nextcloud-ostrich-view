@@ -20,14 +20,22 @@ cd "$(dirname "$(readlink -f "$0")")"
 HEALTH_URL="http://127.0.0.1:3000/healthz"
 HEALTH_TIMEOUT_SECONDS=30
 
+# Deploying anything else is legitimate -- testing a branch on the real server is
+# the point -- but it is worth saying out loud, because this deploy REPLACES the
+# running app rather than standing beside it. Single container name, single image
+# tag, one ./data, and Caddy routes to it by container name.
+DEFAULT_BRANCH=master
+
 # --- output helpers ---------------------------------------------------------
 if [ -t 1 ]; then
-  BOLD=$(printf '\033[1m'); GREEN=$(printf '\033[32m'); RED=$(printf '\033[31m'); RESET=$(printf '\033[0m')
+  BOLD=$(printf '\033[1m'); GREEN=$(printf '\033[32m'); RED=$(printf '\033[31m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
 else
-  BOLD=""; GREEN=""; RED=""; RESET=""
+  BOLD=""; GREEN=""; RED=""; YELLOW=""; RESET=""
 fi
 
 step() { printf '\n%s==> %s%s\n' "$BOLD" "$1" "$RESET"; }
+warn() { printf '%sWARNING:%s %s\n' "$YELLOW" "$RESET" "$1"; }
 fail() { printf '\n%sFAIL: %s%s\n' "$RED" "$1" "$RESET" >&2; exit 1; }
 
 # --- compose command --------------------------------------------------------
@@ -70,9 +78,24 @@ printf '  .env, config/viewers.json, data/ all present\n'
 
 # --- update -----------------------------------------------------------------
 step "Pulling latest code"
+
+# Which ref, checked before pulling so a detached HEAD gets a sentence rather
+# than git's "You are not currently on a branch".
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" = "HEAD" ]; then
+  fail "detached HEAD: not on a branch, so there is nothing to pull. Run \`git switch $DEFAULT_BRANCH\` (or the branch you meant) and try again."
+fi
+if [ "$branch" != "$DEFAULT_BRANCH" ]; then
+  warn "on branch '$branch', not $DEFAULT_BRANCH."
+fi
+
 # --ff-only: if the checkout has local commits or edits, stop and let a human
-# look, rather than starting a merge on a production box.
+# look, rather than starting a merge on a production box. On a branch with no
+# upstream this fails with git's "no tracking information" message -- create it
+# with `git switch -c <name> --track origin/<name>`.
 git pull --ff-only
+
+printf '  %s @ %s\n' "$branch" "$(git log -1 --format='%h %s')"
 
 step "Building and restarting"
 compose up -d --build
@@ -116,5 +139,10 @@ if [ "$healthy" -ne 1 ]; then
 fi
 
 printf '\n%sPASS: ostrich-view is up and healthy at %s%s\n' "$GREEN" "$HEALTH_URL" "$RESET"
+# Repeated here on purpose: a long build scrolls the branch warning off screen,
+# and this is the line people read to decide the deploy went fine.
+if [ "$branch" != "$DEFAULT_BRANCH" ]; then
+  warn "this is branch '$branch', not $DEFAULT_BRANCH. \`git switch $DEFAULT_BRANCH && ./deploy.sh\` to go back."
+fi
 compose ps
 exit 0
