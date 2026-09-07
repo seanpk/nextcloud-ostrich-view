@@ -12,12 +12,13 @@ import {
 } from '../../src/store/visits.js';
 
 /**
- * The visit-rotation rules, which are the whole reason "new since you last
- * looked" survives a pull-to-refresh.
+ * The visit-rotation rules, which are the whole reason the stream's New badges
+ * survive a pull-to-refresh.
  */
 
 const T0 = Date.parse('2026-08-09T09:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
 
 const madeDirs = [];
 after(() => {
@@ -35,6 +36,14 @@ function storeAt(dir, clock, options = {}) {
   return createVisitStore({ dir, now: () => clock.now, ...options });
 }
 
+test('the sitting window is an hour, measured in idle time', () => {
+  // Short on purpose. Nothing on the page is hidden by these stamps any more,
+  // so the only thing the window has to get right is which rows are badged --
+  // and a morning check and a lunchtime check should be two sittings, each told
+  // what arrived since the other.
+  assert.equal(VISIT_WINDOW_MS, HOUR);
+});
+
 test('rotateRecord: a first-ever visit has nothing to compare against', () => {
   const { record, changed } = rotateRecord(undefined, T0);
 
@@ -42,35 +51,35 @@ test('rotateRecord: a first-ever visit has nothing to compare against', () => {
   assert.equal(
     record.previousVisitStartedAt,
     null,
-    'no previous stamp is what hides the section; it must not mean "everything is new"'
+    'no previous stamp is what leaves the rows unbadged; it must not mean "everything is new"'
   );
   assert.equal(changed, true);
 });
 
 test('rotateRecord: refreshing mid-sitting moves lastSeenAt and nothing else', () => {
   const first = rotateRecord(undefined, T0).record;
-  const second = rotateRecord(first, T0 + 5 * HOUR);
+  const second = rotateRecord(first, T0 + 50 * MINUTE);
 
   assert.equal(second.record.currentVisitStartedAt, first.currentVisitStartedAt);
   assert.equal(second.record.previousVisitStartedAt, first.previousVisitStartedAt);
   assert.equal(
     second.record.lastSeenAt,
-    new Date(T0 + 5 * HOUR).toISOString(),
+    new Date(T0 + 50 * MINUTE).toISOString(),
     'the sitting is measured from her last page, not her first'
   );
   assert.equal(second.changed, true, 'lastSeenAt moved, so the file is worth rewriting');
 });
 
 test('rotateRecord: a long browse stays one sitting, however long she reads', () => {
-  // Nine hours of steady reading, well past the six-hour window: measuring from
-  // the sitting's START would rotate mid-browse and shrink the very list she is
-  // working through.
+  // Nine hours of steady reading, page after page, far past the window:
+  // measuring from the sitting's START would rotate mid-browse and move the
+  // badges on the very list she is working through.
   let record = rotateRecord(undefined, T0).record;
   const started = record.currentVisitStartedAt;
 
-  for (let hour = 1; hour <= 9; hour += 1) {
-    record = rotateRecord(record, T0 + hour * HOUR).record;
-    assert.equal(record.currentVisitStartedAt, started, `rotated at hour ${hour}`);
+  for (let step = 1; step <= 18; step += 1) {
+    record = rotateRecord(record, T0 + step * 30 * MINUTE).record;
+    assert.equal(record.currentVisitStartedAt, started, `rotated at step ${step}`);
     assert.equal(record.previousVisitStartedAt, null);
   }
 });
@@ -83,9 +92,9 @@ test('rotateRecord: a record written before lastSeenAt existed still rotates', (
     previousVisitStartedAt: null,
   };
 
-  const stillSitting = rotateRecord(old, T0 + HOUR).record;
+  const stillSitting = rotateRecord(old, T0 + 30 * MINUTE).record;
   assert.equal(stillSitting.currentVisitStartedAt, old.currentVisitStartedAt);
-  assert.equal(stillSitting.lastSeenAt, new Date(T0 + HOUR).toISOString());
+  assert.equal(stillSitting.lastSeenAt, new Date(T0 + 30 * MINUTE).toISOString());
 
   const later = rotateRecord(old, T0 + VISIT_WINDOW_MS + 1).record;
   assert.equal(later.previousVisitStartedAt, old.currentVisitStartedAt);
@@ -102,10 +111,10 @@ test('rotateRecord: a gap longer than the window starts a new sitting', () => {
 test('rotateRecord: the previous stamp survives refreshes inside the new sitting', () => {
   const first = rotateRecord(undefined, T0).record;
   const second = rotateRecord(first, T0 + 24 * HOUR).record;
-  // Three refreshes over the next few hours: "new since" must not empty out.
+  // Three refreshes over the next hour and a half: the badges must not move.
   let record = second;
-  for (const offset of [1, 2, 5]) {
-    record = rotateRecord(record, T0 + (24 + offset) * HOUR).record;
+  for (const offset of [0.5, 1, 1.5]) {
+    record = rotateRecord(record, T0 + 24 * HOUR + offset * HOUR).record;
     assert.equal(record.previousVisitStartedAt, first.currentVisitStartedAt);
     assert.equal(record.currentVisitStartedAt, second.currentVisitStartedAt);
   }
@@ -313,16 +322,17 @@ test('store: a mid-sitting load still refreshes lastSeenAt on disk', async () =>
   const store = storeAt(dir, clock);
 
   await store.rotate('mom');
-  clock.now = T0 + 3 * HOUR;
+  clock.now = T0 + 45 * MINUTE;
   await store.rotate('mom');
 
   const state = await store.read();
   assert.equal(state.mom.currentVisitStartedAt, new Date(T0).toISOString());
-  assert.equal(state.mom.lastSeenAt, new Date(T0 + 3 * HOUR).toISOString());
+  assert.equal(state.mom.lastSeenAt, new Date(T0 + 45 * MINUTE).toISOString());
 
-  // Which is what keeps a long browse from rotating: five more hours of reading
-  // is still the same sitting, because the last page was three hours ago.
-  clock.now = T0 + 8 * HOUR;
+  // Which is what keeps a long browse from rotating: another 45 minutes of
+  // reading is still the same sitting, even though it is now more than an hour
+  // since the sitting began, because the last page was 45 minutes ago.
+  clock.now = T0 + 90 * MINUTE;
   const record = await store.rotate('mom');
   assert.equal(record.currentVisitStartedAt, new Date(T0).toISOString());
 });

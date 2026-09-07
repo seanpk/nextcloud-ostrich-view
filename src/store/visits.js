@@ -10,41 +10,61 @@ import { join } from 'node:path';
  *   { "mom": { "currentVisitStartedAt": "...", "previousVisitStartedAt": "...",
  *              "lastSeenAt": "..." } }
  *
- * TWO TIMESTAMPS, NOT ONE. The home page compares against
- * `previousVisitStartedAt`, never against `current`. If it compared against a
- * single "last seen" stamp that were refreshed on every load, pulling the page
- * down to refresh would empty the "new since you last looked" list -- the one
- * thing Mom is here for -- and she would never find out what she'd missed. So a
- * *visit* is a sitting, not a page load: `current` is stamped when a sitting
- * starts and left alone while it lasts, and only when a sitting has clearly
- * ended does it rotate into `previous`.
+ * WHAT IT IS FOR, NOW. The stream (src/routes/stream.js) always shows the
+ * recent history of changes; these stamps decide only which rows carry a New
+ * badge. That is a smaller job than the one this file was written for -- the
+ * old "New since you last looked" section WAS a filter, and a stamp we got
+ * wrong emptied the page. It cannot do that any more: the worst a wrong
+ * rotation can do now is put the badges on the wrong rows, on a list she can
+ * read either way. The mechanism below is unchanged; only the stakes are.
+ *
+ * TWO TIMESTAMPS, NOT ONE. The badges compare against
+ * `previousVisitStartedAt`, never against `current`. If they compared against a
+ * single "last seen" stamp refreshed on every load, pulling the page down to
+ * refresh would clear every badge she had not read yet -- the marks that tell
+ * her what she has not seen, gone by the act of looking. So a *visit* is a
+ * sitting, not a page load: `current` is stamped when a sitting starts and left
+ * alone while it lasts, and only when a sitting has clearly ended does it
+ * rotate into `previous`.
  *
  * ...AND A THIRD, WHICH IS NOT ONE OF THEM. `lastSeenAt` is refreshed on every
- * home load and decides only one thing: whether the sitting is over
+ * stream load and decides only one thing: whether the sitting is over
  * (VISIT_WINDOW_MS of no page loads). Measuring that from the sitting's START
- * instead would rotate the list out from under a long, unhurried browse -- read
- * for six hours and the section she is reading shrinks as she reads it. It is
- * never compared against, so refreshing it cannot empty anything.
+ * instead would rotate mid-read -- the badges would move while she was working
+ * through them. It is never compared against, so refreshing it cannot clear
+ * anything.
  *
  * FIRST-EVER VISIT. A brand-new viewer has no `previous` at all, which means
- * "there is nothing to compare against" -- so the section stays hidden. It
- * deliberately does not mean "everything is new": greeting someone with forty
- * tiles of every file the owner has ever shared is noise, not news.
+ * "there is nothing to compare against" -- so nothing is badged. It
+ * deliberately does not mean "everything is new": forty New badges on a first
+ * load is noise, not news. She still gets the whole stream, which is what has
+ * changed since this was a section that hid itself instead.
  *
  * DECIDE NOW, PERSIST LATER. `startVisit` works out the rotation but writes
  * nothing; the caller commits once the page it needed the rotation for actually
- * rendered. A home load that fell over on the way to Nextcloud must not consume
- * the baseline -- if it did, the changes between her two previous sittings would
- * be gone for good, and the failed load is the one moment she can't see them.
+ * rendered. A stream load that fell over on the way to Nextcloud must not
+ * consume the baseline -- if it did, everything that changed between her two
+ * previous sittings would lose its badge for good, and the failed load is the
+ * one moment she could not see it.
  *
  * DURABILITY. Writes are temp-file + rename, so a reader (or a container that
  * dies mid-write) sees either the old file or the new one, never half of one.
- * A write that fails is logged and swallowed: losing a visit stamp costs one
- * "new since" section, and is never a reason to fail the home page.
+ * A write that fails is logged and swallowed: losing a visit stamp costs a
+ * page of badges, and is never a reason to fail the page itself.
  */
 
-/** How long a sitting lasts with no page loads before it counts as over. */
-export const VISIT_WINDOW_MS = 6 * 60 * 60 * 1000;
+/**
+ * How long a sitting lasts with no page loads before it counts as over.
+ *
+ * ONE HOUR. It was six, back when the section was a filter: a window shorter
+ * than a person's day risked rotating between two glances and leaving her with
+ * an empty page she had not finished reading. Nothing is hidden now, so the
+ * only thing the window has to get right is the badges -- and for those, short
+ * is accurate: a morning check and a lunchtime check are two separate sittings,
+ * and each should be told what arrived since the other. An hour is long enough
+ * that a cup of tea mid-read does not count as leaving.
+ */
+export const VISIT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * How far ahead of us a stored stamp may be and still be believed.
@@ -52,7 +72,8 @@ export const VISIT_WINDOW_MS = 6 * 60 * 60 * 1000;
  * Phones, containers and NTP disagree by seconds, not hours. A stamp further
  * ahead than this is a clock that jumped, and is discarded rather than trusted
  * -- most importantly it is never promoted into `previous`, where a date in the
- * future would silently mean "nothing is new" for as long as it stayed there.
+ * future would silently mean "nothing is ever new" for as long as it stayed
+ * there, and the badges would stop appearing at all.
  */
 export const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
@@ -93,8 +114,8 @@ function believableStamp(value, nowMs) {
  *                     lastSeenAt: string},
  *            changed: boolean}}
  *   changed: whether the file needs rewriting. `lastSeenAt` moves on every load,
- *   so this is normally true -- a few hundred bytes per home load, which is the
- *   price of measuring the sitting from her last page rather than her first.
+ *   so this is normally true -- a few hundred bytes per stream load, which is
+ *   the price of measuring the sitting from her last page rather than her first.
  */
 export function rotateRecord(record, nowMs, windowMs = VISIT_WINDOW_MS) {
   const nowIso = new Date(nowMs).toISOString();
@@ -105,7 +126,7 @@ export function rotateRecord(record, nowMs, windowMs = VISIT_WINDOW_MS) {
   const lastSeen = believableStamp(record?.lastSeenAt, nowMs) ?? current;
 
   // Idle time, not sitting length: the window is about how long ago she was
-  // last here, so an afternoon of reading stays one sitting.
+  // last here, so an unhurried read stays one sitting however long it takes.
   const idle = lastSeen === null ? Number.POSITIVE_INFINITY : nowMs - Date.parse(lastSeen);
   const sameSitting = current !== null && idle < windowMs;
 
@@ -127,9 +148,9 @@ export function rotateRecord(record, nowMs, windowMs = VISIT_WINDOW_MS) {
     record: {
       currentVisitStartedAt: nowIso,
       // The sitting that just ended becomes the thing we compare against. Null
-      // on a first-ever visit, which is what hides the section. A `current` we
-      // did not believe leaves `previous` alone rather than replacing a real
-      // baseline with a bogus one.
+      // on a first-ever visit, which is what leaves everything unbadged. A
+      // `current` we did not believe leaves `previous` alone rather than
+      // replacing a real baseline with a bogus one.
       previousVisitStartedAt: current ?? previous,
       lastSeenAt: nowIso,
     },
@@ -162,8 +183,8 @@ function sanitizeState(parsed) {
 /**
  * @param {{ dir: string, now?: () => number, windowMs?: number,
  *           log?: {warn: Function} }} options
- *   now: clock, injectable so rotation can be tested across a six-hour gap
- *   without waiting six hours.
+ *   now: clock, injectable so rotation can be tested across the window
+ *   without waiting an hour.
  */
 export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_MS, log } = {}) {
   if (!dir) throw new Error('createVisitStore: dir is required');
@@ -175,7 +196,7 @@ export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_
   // rotations that both read before either wrote would each save a snapshot
   // taken before the other existed, and the second rename would quietly delete
   // the first viewer's visit. Reads deliberately go to disk every time (the file
-  // is a few hundred bytes, and home loads are rare) so that an external edit --
+  // is a few hundred bytes, and page loads are rare) so that an external edit --
   // the E2E suite simulating "she came back tomorrow" -- is actually seen.
   let chain = Promise.resolve();
 
@@ -191,7 +212,7 @@ export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_
 
   // The last unreadable file we complained about. A visit is read twice (decide,
   // then save), and a file we cannot repair -- an unwritable volume -- would
-  // otherwise fill the log with the same line on every home load forever.
+  // otherwise fill the log with the same line on every stream load forever.
   let complainedAbout = null;
 
   function complainOnce(about, err, message) {
@@ -217,8 +238,8 @@ export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_
       complainedAbout = null;
       return state;
     } catch (err) {
-      // Truncated or hand-edited into nonsense. Starting over costs one "new
-      // since" section; refusing to serve the page costs the whole app.
+      // Truncated or hand-edited into nonsense. Starting over costs one page of
+      // badges; refusing to serve the page costs the whole app.
       complainOnce(`parse:${raw}`, err, 'visit state is not valid JSON; starting fresh');
       return sanitizeState(null);
     }
@@ -238,7 +259,7 @@ export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_
 
   /**
    * Save one viewer's record onto the freshest state on disk.
-   * Never rejects: a lost visit stamp costs one section, not the page.
+   * Never rejects: a lost visit stamp costs the badges, not the page.
    */
   function persist(viewerName, record) {
     return serialize(async () => {
@@ -257,11 +278,12 @@ export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_
   /**
    * Work out `viewerName`'s visit as of now, WITHOUT writing anything.
    *
-   * Call this once per authenticated home load. It is the only thing that
-   * advances a visit, so every other page can be visited freely without
-   * consuming the "new since" list -- and even here the advance only becomes
-   * real when the caller calls `commit`, which it should do once the page has
-   * the data it needs. Not calling it leaves the baseline exactly as it was.
+   * Call this once per authenticated STREAM load, and from nowhere else.
+   * Browsing files or tasks must not advance a sitting: only the page that
+   * shows the badges is allowed to spend the baseline they are measured
+   * against. Even here the advance only becomes real when the caller calls
+   * `commit`, which it should do once the page has the data it needs. Not
+   * calling it leaves the baseline exactly as it was.
    *
    * @param {string} viewerName `request.viewer.name`
    * @returns {Promise<{currentVisitStartedAt: string, previousVisitStartedAt: string|null,
@@ -289,7 +311,7 @@ export function createVisitStore({ dir, now = Date.now, windowMs = VISIT_WINDOW_
 
     /**
      * Advance the visit and save it in one go, for callers with nothing to wait
-     * for. The home page uses `startVisit` instead, so that a load which never
+     * for. The stream uses `startVisit` instead, so that a load which never
      * rendered cannot spend the baseline.
      *
      * @param {string} viewerName
