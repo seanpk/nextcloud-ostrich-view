@@ -268,30 +268,41 @@ test.describe('Latest', () => {
     await expect(page.getByText('Clear out the shed')).toHaveCount(0);
   });
 
-  test('the tasks with no due date open in place, above the line', async ({ page }) => {
+  test('the tasks with no due date open in place, under Today', async ({ page }) => {
     await login(page);
 
     const twisty = page.locator('.stream__undated');
     const summary = twisty.locator('summary');
     await expect(summary).toHaveText(/^Also \d+ tasks? without a due date$/);
 
-    // Immediately above the line: they are not on the axis, so this is as close
-    // to "now" as they can honestly get.
-    expect(await topOf(summary)).toBeLessThan(await topOf(page.locator('#today')));
+    // UNDER the Today heading, not above it: an undated task is not later, it
+    // is open now -- and Today is where the page lands, so above the line was
+    // off screen on arrival.
+    expect(await topOf(summary)).toBeGreaterThan(await topOf(page.locator('#today')));
+    // ...and above today's history, which is the rest of that group.
+    const firstHistoryRow = page.locator('.stream__list:not(.stream__list--undated) .stream__item');
+    expect(await topOf(summary)).toBeLessThan(await topOf(firstHistoryRow.last()));
+    // The block above the line has not moved.
+    const overdue = page.locator('.stream__item--overdue').first();
+    expect(await topOf(overdue)).toBeLessThan(await topOf(summary));
+
     // The same 44px floor as everything else she has to hit with a thumb.
     const box = await summary.boundingBox();
     expect(box.height).toBeGreaterThanOrEqual(44);
     expect(box.width).toBeGreaterThanOrEqual(44);
 
-    // Shut until she asks: the axis is what this page is, and a block of
-    // dateless rows above the line would push it down the screen.
+    // Shut until she asks: it is a mention, not a list. Opening it pushes the
+    // history down and moves nothing above it.
     const rows = twisty.locator('.stream__item');
     await expect(rows.first()).toBeHidden();
+    const lineBefore = await topOf(page.locator('#today'));
 
     await summary.click();
     await expect(rows.first()).toBeVisible();
     // She is still on Latest -- that is the whole change. The tasks are here.
     await expect(page).toHaveURL(/\/#today$/);
+    // And the line she landed on has not shifted under her.
+    expect(await topOf(page.locator('#today'))).toBeCloseTo(lineBefore, 0);
 
     // Ordinary task rows: no date, the list's name, and a tap that opens it.
     const count = await rows.count();
@@ -427,6 +438,30 @@ test.describe('Arriving on Today from a bookmark', () => {
       return heading.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
     });
     expect(clear).toBeGreaterThanOrEqual(0);
+  });
+
+  test('the undated twisty is on screen when she lands, not behind her', async ({ page }) => {
+    // THE WHOLE REASON IT MOVED. Sitting above the line it was off screen on
+    // arrival: `#today` scrolls the heading to the top of the viewport, so
+    // everything above it is behind her, and a mention she has to scroll back
+    // to find is barely a mention. On a phone, on the URL she actually opens
+    // (a bookmark or a home-screen icon: plain `/`, no fragment, script on).
+    await login(page);
+    await page.goto('/');
+
+    const today = page.locator('#today');
+    await expect(today).toBeInViewport();
+
+    const summary = page.locator('.stream__undated > summary');
+    await expect(summary).toBeInViewport();
+    // Directly under the heading, with nothing between them but the gap.
+    const gap = await page.evaluate(() => {
+      const heading = document.querySelector('#today');
+      const lid = document.querySelector('.stream__undated > summary');
+      return lid.getBoundingClientRect().top - heading.getBoundingClientRect().bottom;
+    });
+    expect(gap, 'the twisty sits below the Today heading').toBeGreaterThanOrEqual(0);
+    expect(gap, 'and right under it, not a screen away').toBeLessThan(40);
   });
 
   test('a reload -- pull-to-refresh -- lands on Today again, not where she was', async ({ page }) => {

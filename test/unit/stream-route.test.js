@@ -211,29 +211,36 @@ function rowNames(body) {
 }
 
 /**
+ * The page with the undated twisty cut out of it.
+ *
+ * The twisty sits INSIDE today's group now, under the heading and above the
+ * day's rows, so a slice of the page taken at the anchor contains it -- and
+ * every assertion about "the history" would silently gain four dateless
+ * chores. It is not history and it is not on the axis; the tests that care
+ * about it read it with `undatedNames`.
+ */
+function withoutTwisty(body) {
+  return body.replace(/<details class="stream__undated">[\s\S]*?<\/details>/, '');
+}
+
+/**
  * The rows BELOW the Today line: the history.
  *
- * The page is one axis now, so a bare list of names starts with what is coming
+ * The page is one axis, so a bare list of names starts with what is coming
  * (the open tasks' due dates) and only then reaches what happened. Splitting on
  * the anchor is what keeps the two halves' assertions honest about each other.
  */
 function historyNames(body) {
-  const line = body.indexOf('id="today"');
+  const trimmed = withoutTwisty(body);
+  const line = trimmed.indexOf('id="today"');
   assert.notEqual(line, -1, 'the page always has a Today line');
-  return rowNames(body.slice(line));
+  return rowNames(trimmed.slice(line));
 }
 
-/**
- * The rows ABOVE the Today line: what is coming.
- *
- * Stops at the undated twisty, which also lives above the line but is not on
- * the axis -- see `undatedNames`. Without that, "what is coming" would silently
- * include four dateless chores.
- */
+/** The rows ABOVE the Today line: what is coming. */
 function upcomingNames(body) {
   const line = body.indexOf('id="today"');
-  const twisty = body.indexOf('class="stream__undated"');
-  return rowNames(body.slice(0, twisty === -1 ? line : twisty));
+  return rowNames(body.slice(0, line));
 }
 
 /** The undated twisty's markup, or null when the page has none. */
@@ -264,9 +271,10 @@ function rowLabels(body) {
  * about what happened.
  */
 function rowsFor(body, summary) {
-  const line = body.indexOf('id="today"');
+  const trimmed = withoutTwisty(body);
+  const line = trimmed.indexOf('id="today"');
   assert.notEqual(line, -1, 'the page always has a Today line');
-  const blocks = body.slice(line).match(/<li class="stream__item[^"]*">[\s\S]*?<\/li>/g) ?? [];
+  const blocks = trimmed.slice(line).match(/<li class="stream__item[^"]*">[\s\S]*?<\/li>/g) ?? [];
   return blocks
     .filter((block) => block.includes(`>${summary}<`))
     .map((block) => ({
@@ -418,8 +426,20 @@ test('stream: the tasks with no due date are a twisty, holding the tasks themsel
   // A cancelled chore has no due date either, and still says nothing.
   assert.ok(!undatedNames(response.body).includes('Clear out the shed'));
 
-  // And the whole block sits above the line, where what is coming ends.
-  assert.ok(response.body.indexOf('stream__undated') < response.body.indexOf('id="today"'));
+  // It sits UNDER the Today heading, inside today's group: an undated task is
+  // not later, it is open now -- and Today is where the page lands, so above
+  // the line was off screen on arrival.
+  const line = response.body.indexOf('id="today"');
+  const twistyAt = response.body.indexOf('<details class="stream__undated">');
+  assert.ok(twistyAt > line, 'the twisty is below the Today heading');
+  // ...and before today's own rows, and before anything the history says.
+  const firstRowAfter = response.body.indexOf('<li class="stream__item', line);
+  assert.ok(
+    firstRowAfter === -1 || twistyAt < firstRowAfter,
+    'and above the first row under the heading'
+  );
+  // Nothing else has moved: what is coming is still above the line.
+  assert.ok(upcomingNames(response.body).includes('Take the bins out'));
 });
 
 test('stream: with every open task dated, there is no twisty at all', async () => {

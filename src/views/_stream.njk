@@ -144,16 +144,71 @@
 {% endmacro %}
 
 {#
+  The open tasks that carry no due date, behind a closed twisty.
+
+  IT BELONGS TO TODAY, and `day_group` puts it directly under the Today
+  heading. Two reasons, and they are the same reason twice:
+
+   - an undated task is not LATER, it is open NOW. The block above the line is
+     what is coming -- things with a date, sorted by how far off it is -- and a
+     chore with no date has no business being sorted among them. What it is, is
+     part of the state of today.
+   - and Today is where the page lands. Sitting above the line, the twisty was
+     off screen on arrival: `#today` scrolls the heading to the top of the
+     viewport, so everything above it is behind her. A mention she has to
+     scroll back to find is barely a mention -- and this is the one block on
+     the page whose whole job is to say "there is more, here it is".
+
+  SHOWN HERE RATHER THAN LINKED TO. It used to be a line linking to /tasks, and
+  that was the wrong answer: Latest is already the cross-list view -- every
+  dated open task above the line, every finished one in the history below it --
+  so the undated bucket was the one thing on the page she had to leave the page
+  to read, and what she arrived at was a grid of list buttons rather than the
+  four chores she was after. Now the count is the summary and the tasks
+  themselves are the body. Files and Tasks remain the places for browsing by
+  structure.
+
+  A <details>, so it costs no JavaScript: the disclosure works with scripting
+  off, the same way the #today anchor does. Closed by default, because it is a
+  mention and not a list -- opening it pushes today's history down and moves
+  nothing above it, so the line she landed on stays put.
+
+  The rows are ordinary task rows (`task_item`), so a task reads the same here
+  as it does anywhere else on the page -- same icon, same list name in the
+  list's own colour, same tap that opens its list. The muted second line says
+  "No due date" where a due row says "Due Tuesday", which is the only
+  difference there is.
+#}
+{% macro undated_twisty(undated) %}
+  <details class="stream__undated">
+    <summary>{{ undated.label }}</summary>
+    <ul class="stream__list stream__list--undated">
+      {% for item in undated.rows %}
+        {{ task_item(item) }}
+      {% endfor %}
+    </ul>
+  </details>
+{% endmacro %}
+
+{#
   One day's heading plus its rows. The Today group always exists (see
   buildStream in src/lib/stream.js) and carries the `#today` anchor, so /#today
   is meaningful on a quiet day too -- and on a day when nothing changed it is
   just the heading, the divider between what is coming and what happened.
+
+  Today's group is the one that can carry the undated twisty, immediately under
+  the heading and before the day's rows -- see `undated_twisty` for why it
+  lives there. Every other day is handed nothing and renders exactly as before.
 #}
-{% macro day_group(day) %}
+{% macro day_group(day, undated) %}
   <h2
     class="stream__day {{ 'stream__day--empty' if not day.items.length }}"
     {% if day.isToday %}id="today"{% endif %}
   >{{ day.label }}</h2>
+
+  {% if day.isToday and undated %}
+    {{ undated_twisty(undated) }}
+  {% endif %}
 
   {% if day.items.length %}
     <ul class="stream__list">

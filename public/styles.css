@@ -1429,22 +1429,26 @@ a.stream__row:focus-visible {
 }
 
 /*
- * "Also 3 tasks without a due date", immediately above the Today line -- a
+ * "Also 3 tasks without a due date", directly under the Today heading -- a
  * twisty, closed, with the tasks themselves inside it.
  *
- * It used to be a link to /tasks. Latest is already the cross-list view, so the
- * undated bucket was the one thing on this page she had to leave the page to
- * read; now she taps it open in place. Closed by default, because the axis is
- * what this page is and a block of dateless rows above the line would push it
- * down the screen.
+ * It used to be a link to /tasks, and then a twisty above the line. Both were
+ * wrong in the same way: an undated task is not later, it is open now, and
+ * above the line is off screen on arrival (`#today` scrolls the heading to the
+ * top of the viewport). It sits inside today's group now -- first thing under
+ * the heading, before the day's rows.
  *
- * The summary is a full-width row, not a line of text: it is the only thing
- * above the Today line that is tapped rather than followed, and a thumb needs
- * somewhere to land. Dashed, like the "nothing to open here" tiles -- it is not
- * a place, it is a lid.
+ * So it hugs the heading: no top margin of its own, the heading's own 0.6rem
+ * doing that job, and a small gap below to the rows it precedes. Opening it
+ * pushes the history down and moves nothing above it, so the line she landed
+ * on stays exactly where it was.
+ *
+ * The summary is a full-width row, not a line of text: it is tapped rather
+ * than followed, and a thumb needs somewhere to land. Dashed, like the
+ * "nothing to open here" tiles -- it is not a place, it is a lid.
  */
 .stream__undated {
-  margin: 0.8rem 0 0;
+  margin: 0 0 0.5rem;
 }
 
 .stream__undated > summary {
