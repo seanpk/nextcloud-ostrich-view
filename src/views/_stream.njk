@@ -12,8 +12,9 @@
   same "this is here, but there is nothing to tap" language as a static tile.
 
   Macros are defined before they are used, the way _tiles.njk and _task.njk do
-  it. #3 adds a `task_item` macro alongside `file_row`, for the task-change
-  rows that interleave with these by time.
+  it. `task_item` is the same row shape wearing a different middle: a task has
+  no thumbnail, so it gets a small icon saying what happened to it, and its
+  second line names the list rather than the folder.
 #}
 
 {% macro row_body(item) %}
@@ -42,7 +43,9 @@
 {% endmacro %}
 
 {% macro file_row(item) %}
-  <li class="stream__item {{ 'stream__item--new' if item.isNew }}">
+  {# The class list is built without stray spaces, because the route tests read
+     these rows out of the markup by exact class. #}
+  <li class="stream__item{{ ' stream__item--new' if item.isNew }}">
     {% if item.tile.href %}
       <a class="stream__row stream__row--{{ item.tile.kind }}" href="{{ item.tile.href }}">
         {{ row_body(item) }}
@@ -56,10 +59,81 @@
 {% endmacro %}
 
 {#
+  One task row: what happened to it (or when it is due), and which list it is in.
+
+  Four kinds share this macro, because they are four sentences about the same
+  thing and a reader scanning the page should not have to learn two row shapes:
+  `task-added`, `task-finished` and `task-changed` sit in the history below the
+  Today line with the time on the right; `task-due` sits above the line, where
+  the "when" is the due date itself and there is no clock time to show.
+
+  Every row is a link to the task's LIST (`/tasks/<slug>`), which is the only
+  page in this app that shows a task in full. The icon is decoration -- the
+  label beside it says the same thing in words, which is what a screen reader
+  and a colour-blind reader both get.
+#}
+{% macro task_item(item) %}
+  {% if item.kind == 'task-finished' %}
+    {% set icon = 'task-finished' %}
+  {% elif item.kind == 'task-added' %}
+    {% set icon = 'task-added' %}
+  {% elif item.kind == 'task-changed' %}
+    {% set icon = 'task-changed' %}
+  {% else %}
+    {% set icon = 'task-due' %}
+  {% endif %}
+
+  <li class="stream__item{{ ' stream__item--new' if item.isNew }}{{ ' stream__item--overdue' if item.overdue }}">
+    <a class="stream__row stream__row--task" href="{{ item.task.href }}">
+      <span class="stream__thumb stream__thumb--task">
+        {# Un-versioned, like the file-type icons in src/lib/tiles.js: these are
+           four flat shapes that will not change, and a macro has no access to
+           `appVersion` anyway (Nunjucks macros do not see the caller's
+           context). #}
+        <img class="stream__icon" src="/public/icons/{{ icon }}.svg" alt="" aria-hidden="true" />
+      </span>
+
+      <span class="stream__text">
+        <span class="stream__name">{{ item.task.summary }}</span>
+        <span class="stream__where">
+          {# "Finished" below the line, "Was due yesterday" above it. #}
+          <span class="stream__what">{{ item.label if item.label else item.dueLabel }}</span>
+          <span class="stream__list {{ item.task.accentClass }}">{{ item.task.name }}</span>
+        </span>
+      </span>
+
+      <span class="stream__aside">
+        {% if item.isNew %}
+          <span class="stream__badge">New</span>
+        {% endif %}
+        {# Only the history has a clock time; a due date is a day, and the
+           label above already says which. #}
+        {% if item.timeLabel %}
+          <span class="stream__time">{{ item.timeLabel }}</span>
+        {% endif %}
+      </span>
+    </a>
+  </li>
+{% endmacro %}
+
+{#
+  One row, whichever kind it is. The history is a mix now, and the page's order
+  is time alone -- so which macro a row gets is the row's business, not the
+  day group's.
+#}
+{% macro stream_item(item) %}
+  {% if item.kind == 'file' %}
+    {{ file_row(item) }}
+  {% else %}
+    {{ task_item(item) }}
+  {% endif %}
+{% endmacro %}
+
+{#
   One day's heading plus its rows. The Today group always exists (see
   buildStream in src/lib/stream.js) and carries the `#today` anchor, so /#today
   is meaningful on a quiet day too -- and on a day when nothing changed it is
-  just the heading, a divider between what is coming (in #3) and what happened.
+  just the heading, the divider between what is coming and what happened.
 #}
 {% macro day_group(day) %}
   <h2
@@ -70,8 +144,23 @@
   {% if day.items.length %}
     <ul class="stream__list">
       {% for item in day.items %}
-        {{ file_row(item) }}
+        {{ stream_item(item) }}
       {% endfor %}
     </ul>
   {% endif %}
+{% endmacro %}
+
+{#
+  One group above the line: the tasks due on one day ("Tomorrow", "Wed, Sep 9"),
+  or every late one under a single "Overdue" heading, which is the group that
+  sits directly against the Today line.
+#}
+{% macro due_group(group) %}
+  <h2 class="stream__day stream__day--due {{ 'stream__day--overdue' if group.isOverdue }}">{{ group.label }}</h2>
+
+  <ul class="stream__list">
+    {% for item in group.items %}
+      {{ task_item(item) }}
+    {% endfor %}
+  </ul>
 {% endmacro %}

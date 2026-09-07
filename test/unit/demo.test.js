@@ -52,7 +52,8 @@ test('demo: the printed passphrase logs in, and the demo folders are there', asy
 
   const { response, cookie } = await login(base, DEMO_PASSPHRASE);
   assert.equal(response.status, 302, `"${DEMO_PASSPHRASE}" is what the banner tells people to type`);
-  assert.equal(response.headers.get('location'), '/');
+  // The Today line, not the top of the page: see routes/auth.js.
+  assert.equal(response.headers.get('location'), '/#today');
   assert.ok(cookie.includes('ostrich_session'), 'the session cookie was actually set');
   assert.ok(
     !(response.headers.getSetCookie?.() ?? []).some((c) => /;\s*Secure/i.test(c)),

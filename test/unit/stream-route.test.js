@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -9,7 +9,9 @@ import { buildApp } from '../../src/server.js';
 import { loadConfig } from '../../src/config.js';
 import { createTtlCache } from '../../src/lib/stream.js';
 import { WALK_MAX_DEPTH } from '../../src/nextcloud/search.js';
+import { clearTaskCache } from '../../src/nextcloud/caldav.js';
 import { createMockNextcloud, TEST_APP_PASSWORD, TEST_USER } from '../mock-nextcloud/index.js';
+import { CALENDAR_FIXTURES } from '../mock-nextcloud/calendars.js';
 import {
   DEFAULT_TREE,
   NEWEST_LAST_MODIFIED,
@@ -55,8 +57,11 @@ function dataDir() {
   return dir;
 }
 
-/** An app on the given Nextcloud, sharing whichever data directory it is given. */
-async function boot({ baseUrl, dir, streamCache }) {
+/**
+ * An app on the given Nextcloud, sharing whichever data directory it is given.
+ * Pass `logged` (an array) when a test needs to read the warnings it wrote.
+ */
+async function boot({ baseUrl, dir, streamCache, logged }) {
   const config = loadConfig({
     NC_BASE_URL: baseUrl,
     NC_USER: TEST_USER,
@@ -67,7 +72,19 @@ async function boot({ baseUrl, dir, streamCache }) {
     DATA_DIR: dir,
   });
 
-  const app = await buildApp({ config, logger: false, streamCache });
+  // A logger that only collects, when a test needs to see the warnings.
+  const logger = logged
+    ? {
+        level: 'warn',
+        stream: {
+          write(line) {
+            logged.push(JSON.parse(line));
+          },
+        },
+      }
+    : false;
+
+  const app = await buildApp({ config, logger, streamCache });
   cleanups.push(() => app.close());
   return app;
 }
@@ -85,6 +102,33 @@ function countSearches(mock) {
 
 function countPropfinds(mock) {
   return mock.requests.filter((r) => r.method === 'PROPFIND').length;
+}
+
+function countReports(mock) {
+  return mock.requests.filter((r) => r.method === 'REPORT').length;
+}
+
+/**
+ * The fixtures with one chore rewritten, the way the owner editing a task in
+ * the Android app rewrites it: a new DTSTAMP, and (because the mock's etags are
+ * a hash of the resource) a new ETag with it.
+ */
+function editedChores() {
+  return CALENDAR_FIXTURES.map((calendar) => {
+    if (calendar.uri !== 'chores') return calendar;
+    return {
+      ...calendar,
+      // A moved ctag, or `fetchTodos` would be entitled to serve the old answer.
+      ctag: 'http://sabre.io/ns/sync/8',
+      todos: calendar.todos.map((blob) =>
+        blob.includes('SUMMARY:Empty the dishwasher')
+          ? blob
+              .replace(/DTSTAMP:[^\r\n]*/, 'DTSTAMP:20250808T173000Z')
+              .replace('SUMMARY:Empty the dishwasher', 'SUMMARY:Empty the dishwasher\r\nPRIORITY:2')
+          : blob
+      ),
+    };
+  });
 }
 
 /** Log in as mom and come back with the cookie header for later requests. */
@@ -113,16 +157,53 @@ function backdate(dir, startedAt) {
   );
 }
 
-/** The file names on the page, in the order they appear, from the row markup. */
+/** Every row's name, in the order it appears -- files and tasks alike. */
 function rowNames(body) {
   return [...body.matchAll(/<span class="stream__name">([^<]*)<\/span>/g)].map((m) => m[1]);
 }
 
-/** The names of the rows carrying a New badge. */
-function badgedNames(body) {
-  return [...body.matchAll(/<li class="stream__item stream__item--new">[\s\S]*?<\/li>/g)].flatMap(
-    (m) => rowNames(m[0])
+/**
+ * The rows BELOW the Today line: the history.
+ *
+ * The page is one axis now, so a bare list of names starts with what is coming
+ * (the open tasks' due dates) and only then reaches what happened. Splitting on
+ * the anchor is what keeps the two halves' assertions honest about each other.
+ */
+function historyNames(body) {
+  const line = body.indexOf('id="today"');
+  assert.notEqual(line, -1, 'the page always has a Today line');
+  return rowNames(body.slice(line));
+}
+
+/** The rows ABOVE the Today line: what is coming. */
+function upcomingNames(body) {
+  const line = body.indexOf('id="today"');
+  return rowNames(body.slice(0, line));
+}
+
+/** The `label`/`dueLabel` of every row, in order: "Finished", "Was due ...". */
+function rowLabels(body) {
+  return [...body.matchAll(/<span class="stream__what">([^<]*)<\/span>/g)].map((m) =>
+    m[1].trim()
   );
+}
+
+/** The names of the rows carrying a New badge -- files and tasks alike. */
+function badgedNames(body) {
+  return [
+    ...body.matchAll(/<li class="stream__item stream__item--new[^"]*">[\s\S]*?<\/li>/g),
+  ].flatMap((m) => rowNames(m[0]));
+}
+
+/**
+ * The badged FILE rows.
+ *
+ * The badge rule knows nothing about kinds, so a task whose stamp is newer than
+ * the sitting is badged too -- which is the point. Tests about which FILES
+ * carry a badge say so.
+ */
+function badgedFileNames(body) {
+  return badgedNames(body).filter((name) => /\.[a-z0-9]+$/i.test(name));
 }
 
 // --- What the page is -------------------------------------------------------
@@ -136,20 +217,193 @@ test('stream: the whole recent history is listed, grouped by day, newest first',
   const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
 
   assert.equal(response.statusCode, 200);
-  const names = rowNames(response.body);
+  const names = historyNames(response.body);
 
   // Not a filtered slice: files far older than any sitting are on the page too.
-  assert.deepEqual(names.slice(0, 2), RECENT_FILES, 'newest first');
   assert.ok(names.includes('Week 1 Notes.pdf'), 'and the older history under it');
   assert.ok(names.includes('résumé draft.pdf'));
+  // The two recently-touched files lead the file rows.
+  const files = names.filter((name) => name.includes('.'));
+  assert.deepEqual(files.slice(0, 2), RECENT_FILES, 'newest first');
 
-  // Day headings, and the anchor #3 builds on.
+  // Day headings, and the anchor the toggle and the login redirect point at.
   assert.match(response.body, /<h2[^>]*id="today"[^>]*>Today<\/h2>/);
   assert.match(response.body, /class="stream__day[^"]*"[^>]*>[A-Z]\w\w, \w\w\w \d/);
 
-  // One SEARCH, and no folder listing: the stream needs neither.
+  // One SEARCH for the files, one PROPFIND for the task lists, one REPORT
+  // each. The plan (docs/plans/issue-3-tasks-in-stream.md §3) departs from #2's
+  // one-round-trip budget here on purpose: CalDAV has no cross-calendar query.
   assert.equal(countSearches(mock), 1);
-  assert.equal(countPropfinds(mock), 0, 'the stream costs exactly one upstream request');
+  assert.equal(countPropfinds(mock), 1, 'one PROPFIND: the list of task lists');
+  assert.equal(countReports(mock), 2, 'and one REPORT per VTODO calendar');
+});
+
+test('stream: a finished task sits among the file rows, in time order', async () => {
+  const dir = dataDir();
+  const { url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  const names = historyNames(response.body);
+
+  // The fixture's stamps interleave on purpose (see
+  // test/mock-nextcloud/calendars.js): the lab manual was ticked off at 14:00
+  // on the 6th, between the Week 2 notes going up that evening and the Week 1
+  // notes two days earlier. A task row BETWEEN two file rows is the whole point
+  // of merging them onto one axis.
+  const week2 = names.indexOf('Week 2 Notes.pdf');
+  const manual = names.indexOf('Borrow the lab manual');
+  const week1 = names.indexOf('Week 1 Notes.pdf');
+
+  assert.ok(week2 !== -1 && manual !== -1 && week1 !== -1, names.join(', '));
+  assert.ok(week2 < manual, 'the notes went up after the task was ticked off');
+  assert.ok(manual < week1, 'and the task after the earlier notes');
+  // Each task row says what happened and which list it happened in.
+  assert.ok(rowLabels(response.body).includes('Finished'));
+  assert.match(response.body, /<span class="stream__list [^"]*">School Tasks<\/span>/);
+  assert.match(response.body, /href="\/tasks\/school-tasks"/);
+});
+
+test('stream: what is coming sits above the line, with the overdue against it', async () => {
+  const dir = dataDir();
+  const { url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  const coming = upcomingNames(response.body);
+
+  // Fixture dues: the essay (+10d), the lab report (+18d), pond samples (+16d),
+  // the bins (+2d) and the plants (-3d, i.e. overdue).
+  assert.deepEqual(coming, [
+    'Biology lab report',
+    'Collect pond samples',
+    'Write the Café history essay — 日本語 sources',
+    'Take the bins out',
+    'Water the plants',
+  ]);
+  // Furthest away at the top, so the soonest is nearest the line -- and the
+  // overdue one is the last thing above it, in red.
+  const overdue = response.body.indexOf('stream__day--overdue');
+  const today = response.body.indexOf('id="today"');
+  assert.ok(overdue !== -1 && overdue < today, 'the Overdue heading is above the Today line');
+  assert.match(response.body, /stream__item--overdue/);
+  assert.ok(rowLabels(response.body).some((label) => label.startsWith('Was due')));
+
+  // A cancelled chore is dated in the future and still says nothing.
+  assert.ok(!coming.includes('Clear out the shed'));
+  assert.ok(!rowNames(response.body).includes('Clear out the shed'));
+});
+
+test('stream: the tasks with no due date are counted, and link to Tasks', async () => {
+  const dir = dataDir();
+  const { url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  // Read chapter 4, Return the library book, Draw the graphs, Empty the
+  // dishwasher: four open tasks with nowhere on a time axis to be.
+  assert.match(
+    response.body,
+    /<p class="stream__undated"><a href="\/tasks">Also 4 tasks without a due date<\/a><\/p>/
+  );
+  // And it sits above the line, where the block above it ends.
+  assert.ok(response.body.indexOf('stream__undated') < response.body.indexOf('id="today"'));
+});
+
+test('stream: the same task is not announced twice, however often she looks', async () => {
+  const dir = dataDir();
+  const { url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir, streamCache: createTtlCache({ ttlMs: 0 }) });
+  const session = await login(app);
+
+  const first = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  const added = historyNames(first.body).filter((name) => name === 'Read chapter 4');
+  assert.equal(added.length, 1, 'a first sighting is one Added row');
+
+  // The ledger has it now, and the row is still there, still dated by the
+  // task's own stamp -- a row that appeared once and vanished would be worse
+  // than no row at all.
+  const again = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  assert.deepEqual(
+    historyNames(again.body).filter((name) => name === 'Read chapter 4'),
+    ['Read chapter 4']
+  );
+  assert.deepEqual(historyNames(again.body), historyNames(first.body));
+
+  // And it was written down, not re-derived: one entry per task, keyed by
+  // calendar and UID.
+  const ledger = JSON.parse(readFileSync(join(dir, 'tasks-seen.json'), 'utf8'));
+  assert.ok(ledger['school-tasks|task-read'], Object.keys(ledger).join(', '));
+  assert.ok(!('chores|chore-shed' in ledger), 'a cancelled task is not even remembered');
+});
+
+test('stream: editing a task turns into one Changed row on the next load', async () => {
+  const dir = dataDir();
+  const { mock, url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir, streamCache: createTtlCache({ ttlMs: 0 }) });
+  const session = await login(app);
+
+  await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  assert.ok(!rowLabels((await app.inject({ url: '/', headers: { cookie: session.cookie } })).body).includes('Changed'));
+
+  // The owner rewrites a task in the Android app: the resource's bytes change,
+  // so its ETag moves and its DTSTAMP is bumped.
+  mock.setCalendars(editedChores());
+  clearTaskCache();
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  const labels = rowLabels(response.body);
+  assert.equal(labels.filter((label) => label === 'Changed').length, 1, labels.join(', '));
+  assert.match(response.body, /<span class="stream__name">Empty the dishwasher<\/span>/);
+});
+
+// --- The task half is best-effort ------------------------------------------
+
+test('stream: one unreadable task list costs that list, and says so once', async () => {
+  const dir = dataDir();
+  const logged = [];
+  const { url } = await bootMock({ failCalendar: 'chores' });
+  const app = await boot({ baseUrl: url, dir, streamCache: createTtlCache({ ttlMs: 0 }), logged });
+  const session = await login(app);
+
+  const first = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  assert.equal(first.statusCode, 200, 'a broken list is not a broken page');
+  const names = rowNames(first.body);
+  assert.ok(names.includes('microscope.jpg'), 'the files are all there');
+  assert.ok(names.includes('Write the Café history essay — 日本語 sources'), 'and so is the list that works');
+  assert.ok(!names.includes('Take the bins out'), 'the one that does not is simply absent');
+  // No caveat line: we know what lists exist, and all but one answered.
+  assert.doesNotMatch(first.body, /Tasks couldn’t be checked/);
+
+  // She reloads. The complaint is not repeated -- one broken list must not
+  // write a line into the log on every page load for a week.
+  await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  const complaints = logged.filter((line) => /could not read a task list/.test(line.msg));
+  assert.equal(complaints.length, 1, `logged once, not ${complaints.length} times`);
+  assert.equal(complaints[0].list, 'chores', 'and it names the list');
+});
+
+test('stream: no task lists at all leaves a quiet line, not an error page', async () => {
+  const dir = dataDir();
+  // The calendar home itself refuses: an upgrade in progress, a broken
+  // files_sharing, anything. We do not even know what lists exist.
+  const { url } = await bootMock({ calendarHomeStatus: 500 });
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Tasks couldn’t be checked just now\./);
+  assert.ok(rowNames(response.body).includes('microscope.jpg'), 'the file half is untouched');
+  // And nothing was written down about tasks we never saw.
+  assert.equal(existsSync(join(dir, 'tasks-seen.json')), false);
 });
 
 test('stream: skeleton content never reaches the page, however recently it changed', async () => {
@@ -208,11 +462,18 @@ test('stream: after a few days away, the badges land on what changed since', asy
   const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(badgedNames(response.body), RECENT_FILES);
+  assert.deepEqual(badgedFileNames(response.body), RECENT_FILES);
   assert.match(response.body, /You were last here on \w{3}, Aug \d/);
   assert.match(response.body, /Newer things are marked New/);
   // The rest of the history is there, unbadged.
   assert.ok(rowNames(response.body).length > RECENT_FILES.length);
+
+  // The badge rule reads `at` and nothing else, so a task ticked off since that
+  // sitting is badged exactly like a file touched since it -- and one finished
+  // the day before it is not.
+  const badged = badgedNames(response.body);
+  assert.ok(badged.includes('Buy a lab notebook'), 'finished on the 7th, after the sitting');
+  assert.ok(!badged.includes('Hand in the permission slip'), 'finished on the 1st, before it');
 });
 
 test('stream: refreshing mid-sitting leaves the badges exactly where they were', async () => {
@@ -224,13 +485,13 @@ test('stream: refreshing mid-sitting leaves the badges exactly where they were',
   const session = await login(app);
 
   const first = await app.inject({ url: '/', headers: { cookie: session.cookie } });
-  assert.deepEqual(badgedNames(first.body), RECENT_FILES);
+  assert.deepEqual(badgedFileNames(first.body), RECENT_FILES);
 
   // The single most likely thing she does next. The baseline must not move --
   // that is the whole reason a visit is a sitting rather than a page load.
   for (let i = 0; i < 2; i += 1) {
     const again = await app.inject({ url: '/', headers: { cookie: session.cookie } });
-    assert.deepEqual(badgedNames(again.body), RECENT_FILES, `refresh ${i + 1}`);
+    assert.deepEqual(badgedFileNames(again.body), RECENT_FILES, `refresh ${i + 1}`);
   }
   assert.equal(readState(dir).mom.previousVisitStartedAt, LAST_VISIT);
 });
@@ -290,7 +551,7 @@ test('stream: an unreachable Nextcloud reaches the error page, not an empty list
   const ok = await working.inject({ url: '/', headers: { cookie: session.cookie } });
 
   assert.equal(ok.statusCode, 200);
-  assert.deepEqual(badgedNames(ok.body), RECENT_FILES);
+  assert.deepEqual(badgedFileNames(ok.body), RECENT_FILES);
   assert.equal(
     readState(dir).mom.previousVisitStartedAt,
     LAST_VISIT,
@@ -503,7 +764,9 @@ test('stream: an account with nothing shared says nothing has changed, and means
   );
 
   const dir = dataDir();
-  const { url } = await bootMock({ tree: skeletonOnly });
+  // Nothing shared at all: no folders, and no task lists either. With a list
+  // shared there would be task rows, and "nothing has changed" would be false.
+  const { url } = await bootMock({ tree: skeletonOnly, calendars: [] });
   const app = await boot({ baseUrl: url, dir });
   const session = await login(app);
 

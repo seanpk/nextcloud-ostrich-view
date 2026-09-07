@@ -276,29 +276,49 @@ export function upcomingTasks(todos, list, options = {}) {
       !Number.isNaN(todo.due.getTime())
   );
 
-  return dated
-    .map((todo) => {
-      const dueOptions = { isDate: todo.dueIsDate !== false, now };
-      return {
-        kind: 'task-due',
-        // The due date IS this row's place on the axis: it is not something
-        // that happened, it is something that is going to.
-        at: todo.due,
-        dueLabel: formatDueLabel(todo.due, dueOptions),
-        overdue: isOverdue(todo.due, dueOptions),
-        task: { ...view, summary: todo.summary ?? 'Untitled task' },
-        order: dueOrder(todo),
-      };
-    })
-    .sort((a, b) => {
-      if (a.order.day !== b.order.day) return b.order.day - a.order.day;
-      if (a.order.time !== b.order.time) return b.order.time - a.order.time;
-      // Same day, same time: A-Z, so the order is never arbitrary.
-      return String(a.task.summary).localeCompare(String(b.task.summary), undefined, {
+  const rows = dated.map((todo) => {
+    const dueOptions = { isDate: todo.dueIsDate !== false, now };
+    return {
+      kind: 'task-due',
+      // The due date IS this row's place on the axis: it is not something that
+      // happened, it is something that is going to.
+      at: todo.due,
+      dueLabel: formatDueLabel(todo.due, dueOptions),
+      overdue: isOverdue(todo.due, dueOptions),
+      task: { ...view, summary: todo.summary ?? 'Untitled task' },
+      // How it sorts and which day group it lands in -- see `sortUpcoming` and
+      // `buildTimeline`. The template never reads it.
+      order: dueOrder(todo),
+    };
+  });
+
+  return sortUpcoming(rows);
+}
+
+/**
+ * Upcoming rows in page order: furthest away first, overdue last.
+ *
+ * Exported because the page merges the lists. `upcomingTasks` orders one list's
+ * rows, and the route has several to lay on one axis -- and a concatenation of
+ * sorted lists is not sorted, which would show next month's chore between
+ * tomorrow's two.
+ *
+ * @param {Array<object>} rows from `upcomingTasks`
+ * @returns {Array<object>} a new array
+ */
+export function sortUpcoming(rows) {
+  return [...(rows ?? [])].sort((a, b) => {
+    if (a.order.day !== b.order.day) return b.order.day - a.order.day;
+    if (a.order.time !== b.order.time) return b.order.time - a.order.time;
+    // Same day, same time: A-Z, so the order is never arbitrary. The list name
+    // joins in, because two lists can hold the same chore.
+    return (
+      String(a.task.summary).localeCompare(String(b.task.summary), undefined, {
         sensitivity: 'base',
         numeric: true,
-      });
-    });
+      }) || String(a.task.name).localeCompare(String(b.task.name))
+    );
+  });
 }
 
 /**

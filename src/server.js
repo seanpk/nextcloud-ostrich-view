@@ -13,6 +13,7 @@ import { loadConfig } from './config.js';
 import { createClient } from './nextcloud/client.js';
 import { createPreviewCache } from './nextcloud/previews.js';
 import { createVisitStore } from './store/visits.js';
+import { createTasksSeenStore } from './store/tasks-seen.js';
 import { createTtlCache } from './lib/stream.js';
 import { InvalidPathError } from './lib/paths.js';
 import { NC_UNREACHABLE, NextcloudError } from './nextcloud/client.js';
@@ -145,6 +146,12 @@ export async function buildApp(options = {}) {
   // against. Same directory, same volume: one mount carries everything this app
   // remembers between restarts.
   app.decorate('visits', createVisitStore({ dir: config.dataDir, log: app.log }));
+  // Which task UIDs this app has already met, which is the only thing that can
+  // tell a newly shared task from one that has been there all term -- the
+  // household's client writes no CREATED. Not per viewer, unlike the visits
+  // above: which tasks exist is a fact about the household. See
+  // ./store/tasks-seen.js.
+  app.decorate('tasksSeen', createTasksSeenStore({ dir: config.dataDir, log: app.log }));
   // The stream route's short-lived memory of its last SEARCH answer. Built here
   // rather than inside the route so a test can hand in one with a short TTL and
   // a fake clock instead of waiting a minute for an entry to expire.

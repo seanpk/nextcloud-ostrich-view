@@ -155,6 +155,8 @@
     }
   },
 
+  "_comment_tasks": "\"stamp\" is when a task was last written (its DTSTAMP), which is what the Latest page dates its Added and Changed rows by. Without one, every task here would be written the second the demo boots -- a dozen Added rows at the same minute, on top of the file rows. Due dates sit on both sides of today so the Today line has something above it and something below.",
+
   "tasks": [
     {
       "displayName": "School",
@@ -166,22 +168,26 @@
           "due": "+2d",
           "priority": 1,
           "percent": 40,
+          "stamp": "-100h",
           "subtasks": [
-            { "summary": "Collect pond samples", "due": "+1d" },
-            { "summary": "Draw the graphs" },
+            { "summary": "Collect pond samples", "due": "+1d", "stamp": "-99h" },
+            { "summary": "Draw the graphs", "stamp": "-50h" },
             { "summary": "Borrow the lab manual", "completed": "-2d" }
           ]
         },
         {
           "summary": "Math 210 problem set 3",
-          "due": "+5d"
+          "due": "+5d",
+          "stamp": "-75h"
         },
         {
-          "summary": "Read chapter 4 of the Biology text"
+          "summary": "Read chapter 4 of the Biology text",
+          "stamp": "-130h"
         },
         {
           "summary": "Two more sources for the café essay",
-          "due": "-1d"
+          "due": "-1d",
+          "stamp": "-20h"
         },
         {
           "summary": "Email Professor Ruiz about office hours",
@@ -199,15 +205,23 @@
       "tasks": [
         {
           "summary": "Take the bins out",
-          "due": "+0d"
+          "due": "+0d",
+          "stamp": "-8h"
+        },
+        {
+          "summary": "Water the plants",
+          "due": "-3d",
+          "stamp": "-90h"
         },
         {
           "summary": "Pay the internet bill",
           "description": "Splitting it with Sam this month.",
-          "due": "+4d"
+          "due": "+4d",
+          "stamp": "-45h"
         },
         {
-          "summary": "Empty the dishwasher"
+          "summary": "Empty the dishwasher",
+          "stamp": "-160h"
         },
         {
           "summary": "Vacuum the stairs",

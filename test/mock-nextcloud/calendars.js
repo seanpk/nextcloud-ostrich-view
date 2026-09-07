@@ -420,22 +420,30 @@ ${parts.join('\n')}
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
  * @param {{ pathname: string, hrefRoot: string, calendars?: Array<object>,
- *           failCalendar?: string|null }} options
+ *           failCalendar?: string|null, homeStatus?: number|null }} options
  *   failCalendar: the `uri` of one calendar whose REPORT answers 500. One list
  *   failing while the others answer is the case the stream's task half is
  *   best-effort FOR (see ../../src/routes/stream.js), and it cannot be
  *   simulated by taking the whole server away.
+ *   homeStatus: answer the calendar home's PROPFIND with this status instead of
+ *   listing anything -- "we do not even know what task lists exist", which is
+ *   the one task failure the reader is told about.
  * @returns {boolean} true if the request was handled here
  */
 export function handleCalendarRequest(
   req,
   res,
-  { pathname, hrefRoot, calendars = CALENDAR_FIXTURES, failCalendar = null }
+  { pathname, hrefRoot, calendars = CALENDAR_FIXTURES, failCalendar = null, homeStatus = null }
 ) {
   const normalized = pathname.replace(/\/+$/, '');
   const root = hrefRoot.replace(/\/+$/, '');
 
   if (normalized === root) {
+    if (homeStatus !== null) {
+      res.writeHead(homeStatus, { 'Content-Type': 'text/plain' });
+      res.end('The calendar home is not answering');
+      return true;
+    }
     if (req.method !== 'PROPFIND') {
       res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'PROPFIND' });
       res.end('Only PROPFIND on the calendar home');

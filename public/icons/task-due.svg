@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true">
+  <!-- Coming up: a calendar page. Outlined rather than filled, so the block
+       above the Today line reads as lighter than the history below it. -->
+  <rect x="7" y="11" width="34" height="30" rx="4" fill="#ffffff" stroke="#4a5560" stroke-width="3"/>
+  <path fill="#4a5560" d="M7 15a4 4 0 0 1 4-4h26a4 4 0 0 1 4 4v5H7Z"/>
+  <path fill="none" stroke="#4a5560" stroke-width="3" stroke-linecap="round" d="M16 8v6M32 8v6"/>
+  <g fill="#4a5560">
+    <rect x="13" y="26" width="7" height="6" rx="1.5"/>
+    <rect x="24" y="26" width="7" height="6" rx="1.5"/>
+  </g>
+</svg>

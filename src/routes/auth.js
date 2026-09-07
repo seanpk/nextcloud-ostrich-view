@@ -105,7 +105,13 @@ export default async function registerAuthRoutes(app) {
       request.session.set('loggedInAt', new Date().toISOString());
 
       request.log.info({ viewer: viewer.name }, 'login');
-      return reply.redirect('/', 302);
+      // `/#today`, the same place the Latest toggle points at: the stream has
+      // what is coming above the Today line and the history below it, and
+      // signing in should put her on the line rather than at the top of next
+      // month's tasks. A fragment in a Location header is honoured by every
+      // browser, and it is the only "scroll to" mechanism available on a page
+      // with no JavaScript.
+      return reply.redirect('/#today', 302);
     }
   );
 
