@@ -1,5 +1,5 @@
 import { encodePath } from './paths.js';
-import { kindOf, rendersInline } from './filetypes.js';
+import { canView, kindOf } from './filetypes.js';
 import { isValidEtag, isValidFileId } from '../nextcloud/previews.js';
 
 /**
@@ -9,9 +9,11 @@ import { isValidEtag, isValidFileId } from '../nextcloud/previews.js';
  *  - `previewUrl` points at `/preview/<fileId>?v=<etag>`, so the template swaps
  *    the flat icon for a real thumbnail;
  *  - `href` points file tiles at `/view/<path>` for the files we can actually
- *    show inline -- which is `rendersInline`'s decision, taken from the same
- *    table `/content/*` reads to choose a Content-Type, so a tile can never
- *    link to something the proxy will defang into a download.
+ *    show -- which is `canView`'s decision, taken from the same table
+ *    `/content/*` reads to choose a Content-Type, so a tile can never link to
+ *    something the viewer would meet with a broken picture. That is either a
+ *    file the browser paints from `/content/*` (a photo, a PDF) or one we
+ *    convert to HTML ourselves before she ever sees it (a Word document).
  *
  * Only kinds Nextcloud reliably renders a thumbnail for get a `previewUrl`.
  * PDFs are included because our deployment runs Nextcloud AIO's Imaginary
@@ -68,8 +70,8 @@ function previewUrlFor(entry, kind) {
 /**
  * Turn a PROPFIND entry into a tile.
  *
- * Folders link into `/files/...`; images and PDFs link into `/view/...`.
- * Anything else keeps `href: null` and renders as a plain label -- M1's visual
+ * Folders link into `/files/...`; images, PDFs and Word documents link into
+ * `/view/...`. Anything else keeps `href: null` and renders as a plain label -- M1's visual
  * language for "this is here, but there is nothing to tap". (`/view/` still
  * answers for those paths with a calm "we can't show this one" page if someone
  * arrives by URL.)
@@ -92,7 +94,7 @@ export function toTile(entry) {
 
   let href = null;
   if (entry.isFolder) href = `/files/${encoded}`;
-  else if (rendersInline(entry)) href = `/view/${encoded}`;
+  else if (canView(entry)) href = `/view/${encoded}`;
 
   return {
     name: entry.name,

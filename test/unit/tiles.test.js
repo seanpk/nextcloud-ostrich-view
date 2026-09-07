@@ -40,6 +40,38 @@ test('toTile: images and PDFs open in the inline viewer', () => {
   assert.equal(pdf.kind, 'pdf');
 });
 
+test('toTile: a Word document is tappable -- we convert it rather than paint it', () => {
+  // The tile links because `/view/` has something to show, even though
+  // `/content/` will only ever hand these bytes over as octet-stream: the
+  // page renders converted HTML instead. See src/lib/office.js.
+  const docx = toTile(
+    entry({
+      name: 'Week 3 Notes.docx',
+      path: 'Biology 101/Week 3 Notes.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+  );
+  assert.equal(docx.href, '/view/Biology%20101/Week%203%20Notes.docx');
+  assert.equal(docx.kind, 'document');
+  assert.equal(docx.previewUrl, null, 'Nextcloud has no office thumbnails without Collabora');
+});
+
+test('toTile: an office file we cannot render is not linked, download or not', () => {
+  // `canView` is the whole href rule, and being downloadable is not part of
+  // it: a tile only becomes tappable when `/view/` has something to *show*.
+  // These two arrive at the calm page (with a download button) if someone
+  // reaches them by URL, but the grid gives them no link to a page that has
+  // nothing on it.
+  for (const contentType of [
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ]) {
+    const tile = toTile(entry({ name: 'deck.x', path: 'deck.x', contentType }));
+    assert.equal(tile.href, null, `${contentType} is not something /view/ can render`);
+    assert.equal(tile.icon, '/public/icons/document.svg');
+  }
+});
+
 test('toTile: files we cannot show inline stay plain labels', () => {
   const txt = toTile(entry({ name: 'welcome.txt', path: 'welcome.txt', contentType: 'text/plain' }));
   assert.equal(txt.href, null);
