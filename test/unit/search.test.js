@@ -6,6 +6,7 @@ import {
   buildSearchBody,
   clearStrategyMemo,
   findChangedSince,
+  findRecent,
   parseSearchResults,
   searchChangedSince,
   SearchUnsupportedError,
@@ -92,6 +93,24 @@ test('buildSearchBody: asks for the props a tile needs, at infinite depth', () =
   assert.match(body, /<d:nresults>50<\/d:nresults>/);
 });
 
+test('buildSearchBody: with no `since`, there is no where clause at all', () => {
+  // The stream's question: the newest N files, whenever they changed. An
+  // omitted <d:where> says that unambiguously; a literal of 1970 would say it
+  // only for as long as the server kept parsing the literal.
+  const body = buildSearchBody({ scope: '/files/ostrich-viewer', limit: 50 });
+
+  assert.doesNotMatch(body, /<d:where>/);
+  assert.doesNotMatch(body, /<d:literal>/);
+  assert.doesNotMatch(body, /<d:gt>/);
+  // Everything that makes the answer useful without a filter is still there.
+  assert.match(body, /<d:descending\/>/);
+  assert.match(body, /<d:nresults>50<\/d:nresults>/);
+  assert.match(body, /<d:depth>infinity<\/d:depth>/);
+  // And it is still well-formed XML, not a template with a hole in it.
+  assert.match(body, /<\/d:basicsearch>\s*<\/d:searchrequest>$/);
+  assert.equal(buildSearchBody({ scope: '/files/ostrich-viewer', since: null }), body);
+});
+
 test('buildSearchBody: a scope with XML-hostile characters is escaped', () => {
   const body = buildSearchBody({ scope: '/files/a&b<c', since: SINCE });
   assert.ok(body.includes('/files/a&amp;b&lt;c'));
@@ -117,6 +136,31 @@ test('parseSearchResults: files only, newest first', () => {
   assert.ok(Number.isInteger(entries[0].fileId));
   assert.match(entries[0].etag, /^[a-z0-9]+$/);
   assert.equal(entries[0].contentType, 'image/jpeg');
+});
+
+test('parseSearchResults: with no `since`, every dated file survives', () => {
+  const entries = parseSearchResults(searchAnswer(new Date(0)), { davRoot: DAV_ROOT });
+
+  const paths = entries.map((e) => e.path);
+  assert.ok(paths.length > 3, 'no lower bound means the whole tree, not just the recent files');
+  assert.ok(paths.includes('Biology 101/Lectures/Week 1 Notes.pdf'), 'an old file is still a file');
+  // Still newest first, and still no folders.
+  assert.equal(entries[0].path, 'Biology 101/Lab Reports/microscope.jpg');
+  assert.ok(entries.every((e) => !e.isFolder));
+});
+
+test('parseSearchResults: an undated entry is dropped even with no lower bound', () => {
+  // The stream groups rows by day, so a file with no getlastmodified has
+  // nowhere to go on the page.
+  const body = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:response>
+    <d:href>${DAV_ROOT}/undated.pdf</d:href>
+    <d:propstat><d:prop><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+
+  assert.deepEqual(parseSearchResults(body, { davRoot: DAV_ROOT }), []);
 });
 
 test('parseSearchResults: an empty multistatus is "nothing changed", not a broken response', () => {
@@ -219,6 +263,23 @@ test('searchChangedSince: a 405 is SearchUnsupportedError, not a page-breaking f
   });
 });
 
+test('searchChangedSince: with no `since` it asks for the newest files, unfiltered', async () => {
+  const seen = [];
+  const nc = client(async (url, init) => {
+    seen.push(init.body);
+    return xml(searchAnswer(new Date(0)));
+  });
+
+  const entries = await searchChangedSince(nc, null);
+
+  assert.equal(seen.length, 1);
+  assert.doesNotMatch(seen[0], /<d:where>/);
+  // Photos/Frog.jpg is recent but is the account's own skeleton content: the
+  // share filter still applies with no date filter in front of it.
+  assert.ok(!entries.some((e) => e.path.startsWith('Photos/')));
+  assert.ok(entries.some((e) => e.path === 'Biology 101/Lectures/Week 1 Notes.pdf'));
+});
+
 // --- The walk fallback ------------------------------------------------------
 
 /**
@@ -251,6 +312,19 @@ test('walkChangedSince: finds the same files SEARCH would, newest first', async 
     'Biology 101/Lectures/Week 2 Notes.pdf',
   ]);
   assert.equal(truncated, false, 'the whole fixture fits inside the bounds');
+});
+
+test('walkChangedSince: with no `since` it keeps every dated file it finds', async () => {
+  const { entries, truncated } = await walkChangedSince(walkingClient(), null);
+
+  const paths = entries.map((e) => e.path);
+  assert.ok(paths.includes('Biology 101/Lectures/Week 1 Notes.pdf'));
+  assert.ok(paths.includes('Café Notes/résumé draft.pdf'));
+  // Skeleton content is pruned by ownership, not by date, so it stays out.
+  assert.ok(!paths.some((path) => path.startsWith('Photos/')));
+  assert.equal(truncated, false);
+  // Newest first, as ever.
+  assert.equal(paths[0], 'Biology 101/Lab Reports/microscope.jpg');
 });
 
 test('walkChangedSince: visits every folder in the fixture exactly once', async () => {
@@ -510,4 +584,43 @@ test('findChangedSince: the memo is per instance, and clearable', async () => {
 
   clearStrategyMemo(memo);
   assert.equal(memo.size, 0);
+});
+
+test('findRecent: the same machinery, asked without a lower bound', async () => {
+  const bodies = [];
+  const nc = client(async (url, init) => {
+    bodies.push(init.body);
+    return xml(searchAnswer(new Date(0)));
+  });
+
+  const { entries, strategy, settled, truncated } = await findRecent(nc, { memo: new Map() });
+
+  assert.equal(strategy, 'search');
+  assert.equal(settled, true);
+  assert.equal(truncated, false);
+  assert.equal(bodies.length, 1, 'the stream gets exactly one upstream request');
+  assert.doesNotMatch(bodies[0], /<d:where>/);
+  assert.ok(entries.length > 2);
+});
+
+test('findRecent: falls back to the walk exactly as findChangedSince does', async () => {
+  const memo = new Map();
+  let searches = 0;
+  const nc = client(async (url, init) => {
+    if (init.method === 'SEARCH') {
+      searches += 1;
+      return new Response('nope', { status: 405 });
+    }
+    const path = decodeURIComponent(new URL(url).pathname.slice(DAV_ROOT.length + 1));
+    const node = resolveNode(DEFAULT_TREE, path);
+    if (!node) return new Response('', { status: 404 });
+    return xml(buildMultistatus({ davRoot: DAV_ROOT, relPath: path, node, tree: DEFAULT_TREE }));
+  });
+
+  const { entries, strategy, settled } = await findRecent(nc, { memo });
+
+  assert.equal(searches, 1);
+  assert.equal(strategy, 'walk');
+  assert.equal(settled, true, '405 is structural: this instance has settled on the walk');
+  assert.ok(entries.some((e) => e.path === 'Biology 101/Lectures/Week 1 Notes.pdf'));
 });

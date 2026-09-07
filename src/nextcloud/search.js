@@ -2,28 +2,47 @@ import { parseMultistatus, propfind } from './webdav.js';
 import { shareSignal } from './shares.js';
 
 /**
- * "What changed since she last looked?"
+ * "What has been changing?" -- and, when a lower bound is given, "what changed
+ * since a particular moment?"
+ *
+ * The stream asks the first form (`findRecent`): the newest `limit` files in
+ * the shared tree, with no date filter at all. `findChangedSince` is the same
+ * machinery with a `d:gt` on `getlastmodified` bolted on, kept because it is
+ * one `<d:where>` block and because "everything newer than X" is a question
+ * this app may well want again.
+ *
+ * EVERY FUNCTION HERE TAKES `since` AS AN OPTIONAL LOWER BOUND. `null` (or
+ * `undefined`) means "no lower bound": the `<d:where>` block is omitted, the
+ * re-applied filter in `parseSearchResults` is skipped, and the walk keeps
+ * every file it finds. It is not a synonym for "the epoch" -- a server that
+ * mis-parsed an epoch literal would silently match everything, which is
+ * exactly the failure `toDavDateTime` exists to prevent, so the honest way to
+ * ask for everything is to not ask for a date.
  *
  * Two strategies for one question, because WebDAV SEARCH is optional and this
  * app has to work on whatever Nextcloud the Beelink is running:
  *
  *  1. `SEARCH` on the DAV endpoint with a `d:basicsearch` body -- ONE request,
  *     the whole shared tree, already ordered and limited by the server. This is
- *     the reason the home page can afford this feature at all.
+ *     the reason the stream can afford to be the landing page at all.
  *  2. A bounded, breadth-first `Depth: 1` walk, for servers that answer SEARCH
  *     with 405 (or 400, or an HTML login page). Correct but chatty, so it is
  *     capped on both depth and folder count -- see WALK_MAX_*.
  *
- * Which one worked is remembered per process (see `findChangedSince`), so an
+ * Which one worked is remembered per process (see `findStrategy`), so an
  * instance without SEARCH pays the failed probe once at boot rather than on
- * every home load.
+ * every stream load.
  *
  * FOLDERS ARE NEVER RESULTS. A folder's mtime changes whenever anything inside
- * it does, so including them would fill the section with "Lectures" every time
+ * it does, so including them would fill the stream with "Lectures" every time
  * The owner adds a file to it -- next to the file itself, which is the actual news.
  */
 
-/** How many results we ask for. The page shows 20; the rest becomes "and N more". */
+/**
+ * How many results we ask for, and -- since the stream shows every one of them
+ * -- how long the stream can get. Past this the page stops being a stream of
+ * recent changes and starts being a file manager, which is what /files is for.
+ */
 export const SEARCH_LIMIT = 50;
 
 /** Walk bounds. The owner's share is a handful of course folders; these are ceilings, not targets. */
@@ -92,11 +111,29 @@ export function searchScopeFor(client) {
  * `toTile`) already understands -- notably `oc:fileid` and `d:getetag`, without
  * which a result tile could show no thumbnail.
  *
- * @param {{scope: string, since: Date|string|number, limit?: number}} options
+ * With no `since`, the whole `<d:where>` block is left out rather than filled
+ * with a very old date. `<d:where>` is optional in RFC 5323's grammar, and an
+ * omitted one is unambiguous; a literal of `1970-01-01T00:00:00+00:00` would
+ * work only for as long as the server parsed it, and would match everything
+ * the moment it didn't. The `orderby` and `limit` are what make the answer
+ * useful without it: newest first, and no more than `nresults` of them.
+ *
+ * @param {{scope: string, since?: Date|string|number|null, limit?: number}} options
+ *   since: omit or pass null for "no lower bound".
  * @returns {string}
  */
-export function buildSearchBody({ scope, since, limit = SEARCH_LIMIT }) {
+export function buildSearchBody({ scope, since = null, limit = SEARCH_LIMIT }) {
   const nresults = Math.max(1, Math.trunc(limit));
+  const where =
+    since === null || since === undefined
+      ? ''
+      : `    <d:where>
+      <d:gt>
+        <d:prop><d:getlastmodified/></d:prop>
+        <d:literal>${xmlEscape(toDavDateTime(since))}</d:literal>
+      </d:gt>
+    </d:where>
+`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
@@ -117,13 +154,7 @@ export function buildSearchBody({ scope, since, limit = SEARCH_LIMIT }) {
         <d:depth>infinity</d:depth>
       </d:scope>
     </d:from>
-    <d:where>
-      <d:gt>
-        <d:prop><d:getlastmodified/></d:prop>
-        <d:literal>${xmlEscape(toDavDateTime(since))}</d:literal>
-      </d:gt>
-    </d:where>
-    <d:orderby>
+${where}    <d:orderby>
       <d:order>
         <d:prop><d:getlastmodified/></d:prop>
         <d:descending/>
@@ -136,9 +167,22 @@ export function buildSearchBody({ scope, since, limit = SEARCH_LIMIT }) {
 </d:searchrequest>`;
 }
 
-/** Strictly newer than `since`, and dated at all. */
+/**
+ * Strictly newer than `since`, and dated at all.
+ *
+ * `sinceMs` of null is "no lower bound", and even then an UNDATED entry is
+ * dropped: the stream groups rows by day, so a file with no `getlastmodified`
+ * has nowhere to go on the page.
+ */
 function isNewer(entry, sinceMs) {
-  return entry.lastModified instanceof Date && entry.lastModified.getTime() > sinceMs;
+  if (!(entry.lastModified instanceof Date)) return false;
+  return sinceMs === null || entry.lastModified.getTime() > sinceMs;
+}
+
+/** A `since` argument as milliseconds, or null for "no lower bound". */
+function sinceMsOf(since) {
+  if (since === null || since === undefined) return null;
+  return since instanceof Date ? since.getTime() : Number(since);
 }
 
 function newestFirst(entries) {
@@ -155,9 +199,11 @@ function newestFirst(entries) {
  * dropped, so a server that answered with somebody else's files could not put
  * them on the page.
  *
- * The `since` filter is re-applied here rather than trusted: it costs nothing,
- * and a server that mis-parsed our literal would otherwise return the entire
- * tree as "new".
+ * The `since` filter, when there is one, is re-applied here rather than
+ * trusted: it costs nothing, and a server that mis-parsed our literal would
+ * otherwise return the entire tree as "new". With no `since` there is nothing
+ * to re-apply and every dated file survives -- which is the stream's case, and
+ * is why the server's `orderby`/`limit` do the work instead.
  *
  * Deliberately UNFILTERED with respect to shares: Nextcloud's SEARCH matches
  * anything under the scope regardless of who owns it, so a result here can be
@@ -167,12 +213,12 @@ function newestFirst(entries) {
  * `walkChangedSince`) can be held to the same rule with the `client` in hand.
  *
  * @param {string} xml raw 207 body
- * @param {{davRoot: string, since: Date|number, limit?: number}} options
+ * @param {{davRoot: string, since?: Date|number|null, limit?: number}} options
  * @returns {Array<object>} parseMultistatus entry shape, files only
  */
-export function parseSearchResults(xml, { davRoot, since, limit = SEARCH_LIMIT }) {
+export function parseSearchResults(xml, { davRoot, since = null, limit = SEARCH_LIMIT }) {
   const { entries } = parseMultistatus(xml, { davRoot, requestPath: '' });
-  const sinceMs = since instanceof Date ? since.getTime() : Number(since);
+  const sinceMs = sinceMsOf(since);
 
   return newestFirst(entries.filter((entry) => !entry.isFolder && isNewer(entry, sinceMs))).slice(
     0,
@@ -185,7 +231,7 @@ export function parseSearchResults(xml, { davRoot, since, limit = SEARCH_LIMIT }
  * which is `findChangedSince`'s cue to switch strategies for good.
  *
  * @param {ReturnType<import('./client.js').createClient>} client
- * @param {Date} since
+ * @param {Date|null} since null for "the newest `limit` files, whenever they changed"
  * @param {{limit?: number}} [options]
  * @returns {Promise<Array<object>>}
  */
@@ -226,17 +272,17 @@ export async function searchChangedSince(client, since, { limit = SEARCH_LIMIT }
  * The fallback: breadth-first Depth-1 PROPFINDs, bounded on both axes.
  *
  * The bounds are not tuning, they are safety. Without them one deeply-nested
- * share would turn a home page load into hundreds of upstream requests while
+ * share would turn a stream load into hundreds of upstream requests while
  * Mom watches a blank screen. Hitting either bound returns what was found so
- * far rather than failing -- a partial "new since" list is still useful, and
- * the folder buttons underneath it are the real navigation.
+ * far rather than failing -- a partial stream is still worth reading, and the
+ * Files toggle beside it is the real navigation.
  *
- * Hitting a bound is reported back as `truncated`, because the page words the
- * "and more" line differently when whole subtrees went unlooked-at: "…and 5
- * more." would be a precise number we have no right to.
+ * Hitting a bound is reported back as `truncated`, because the page has to say
+ * so: whole subtrees went unlooked-at, and a list that stops without a word
+ * would imply "that is everything".
  *
  * @param {ReturnType<import('./client.js').createClient>} client
- * @param {Date} since
+ * @param {Date|null} since null keeps every dated file the walk finds
  * @param {{limit?: number, maxDepth?: number, maxFolders?: number}} [options]
  * @returns {Promise<{entries: Array<object>, truncated: boolean}>} files only, newest first
  */
@@ -247,7 +293,7 @@ export async function walkChangedSince(client, since, options = {}) {
     maxFolders = WALK_MAX_FOLDERS,
   } = options;
 
-  const sinceMs = since instanceof Date ? since.getTime() : Number(since);
+  const sinceMs = sinceMsOf(since);
   const found = [];
   let queue = [{ path: '', depth: 0 }];
   let visited = 0;
@@ -306,8 +352,8 @@ export async function walkChangedSince(client, since, options = {}) {
  * the DAV endpoint has no SEARCH handler, and a 302 to (or a 200 of) an HTML
  * login page is a front-end that will never route SEARCH to Nextcloud at all.
  * A list of statuses missed those last two, and the cost of missing them is not
- * a slow request: it is a doomed probe plus a warning line on EVERY home load,
- * for the life of the process.
+ * a slow request: it is a doomed probe plus a warning line on EVERY stream
+ * load, for the life of the process.
  *
  * 5xx and network errors stay transient: a 502 from a proxy being restarted, a
  * 500, a dropped socket say nothing about SEARCH support, and demoting on one
@@ -317,8 +363,9 @@ export async function walkChangedSince(client, since, options = {}) {
  *
  * Two sub-500 statuses are carved back out, because they are the server saying
  * "not now" rather than "not ever": 408 (it gave up waiting for our request) and
- * 429 (we are asking too often -- which a home page under a burst of refreshes
- * genuinely can, and which a proxy can answer on Nextcloud's behalf). Demoting
+ * 429 (we are asking too often -- which a landing page under a burst of
+ * refreshes genuinely can, and which a proxy answers on Nextcloud's behalf).
+ * Demoting
  * on either would trade one busy moment for a permanent walk.
  */
 const SEARCH_NOT_IMPLEMENTED = 501;
@@ -336,7 +383,7 @@ function refusesSearch(err) {
  * baseUrl -> 'search' | 'walk'. Module-level: one process, one answer.
  *
  * Deliberately sticky and deliberately not persisted. Sticky, because probing
- * SEARCH on every home load would cost an extra round trip forever on an
+ * SEARCH on every stream load would cost an extra round trip forever on an
  * instance that will never support it. Not persisted, because a restart (which
  * is how this app is deployed) is exactly when re-probing is worth it -- an
  * admin who enables the search backend gets the fast path back for free.
@@ -353,13 +400,16 @@ export function clearStrategyMemo(memo = strategyMemo) {
 }
 
 /**
- * Files changed since `since`, by whichever route works.
+ * Files from the shared tree, newest first, by whichever route works.
  *
- * Adds exactly ONE upstream request to the home page whenever SEARCH is
- * available -- which is the budget this feature was given.
+ * Adds exactly ONE upstream request to the page whenever SEARCH is available --
+ * which is the budget this feature was given. `findRecent` and
+ * `findChangedSince` are the two ways to ask; they differ only in whether they
+ * name a lower bound.
  *
  * @param {ReturnType<import('./client.js').createClient>} client
- * @param {Date} since previous visit; results are strictly newer than this
+ * @param {Date|null} since null for "the newest `limit`, whenever they changed";
+ *   a Date for "strictly newer than this"
  * @param {{limit?: number, maxDepth?: number, maxFolders?: number,
  *          memo?: Map, log?: {warn: Function}}} [options]
  * @returns {Promise<{entries: Array<object>, strategy: 'search'|'walk',
@@ -372,10 +422,10 @@ export function clearStrategyMemo(memo = strategyMemo) {
  *   the same question as "how was this one obtained" -- a walk run because
  *   SEARCH is refused outright is the best this instance will ever do, while a
  *   walk run because SEARCH had a bad minute will be replaced by a SEARCH on the
- *   next load. Callers that cache (see routes/home.js) need the difference.
+ *   next load. Callers that cache (see routes/stream.js) need the difference.
  * @throws {NextcloudError} only if the fallback walk cannot list the root
  */
-export async function findChangedSince(client, since, options = {}) {
+async function findStrategy(client, since, options = {}) {
   const { memo = strategyMemo, log, ...bounds } = options;
   const key = client.baseUrl;
 
@@ -407,6 +457,39 @@ export async function findChangedSince(client, since, options = {}) {
   // once a structural refusal has been recorded, and is left alone by a
   // transient one.
   return { entries, strategy: 'walk', settled: memo.get(key) === 'walk', truncated };
+}
+
+/**
+ * The newest `limit` files in the shared tree, newest first, however long ago
+ * they changed. What the stream is built from.
+ *
+ * No date is sent at all -- see the note at the top of this module for why
+ * that is not the same thing as sending a very old one.
+ *
+ * @param {ReturnType<import('./client.js').createClient>} client
+ * @param {Parameters<typeof findStrategy>[2]} [options]
+ * @returns {ReturnType<typeof findStrategy>}
+ */
+export function findRecent(client, options = {}) {
+  return findStrategy(client, null, options);
+}
+
+/**
+ * Files strictly newer than `since`, newest first.
+ *
+ * Nothing in the app asks this question today -- the stream shows the recent
+ * history and marks the new rows rather than filtering by a timestamp, on
+ * purpose (a wrong stamp should cost a badge, not the list). It is kept because
+ * it is one `<d:where>` block on top of `findRecent`, and because it is the
+ * honest way to ask "what have I not seen?" if that is ever wanted server-side.
+ *
+ * @param {ReturnType<import('./client.js').createClient>} client
+ * @param {Date} since results are strictly newer than this
+ * @param {Parameters<typeof findStrategy>[2]} [options]
+ * @returns {ReturnType<typeof findStrategy>}
+ */
+export function findChangedSince(client, since, options = {}) {
+  return findStrategy(client, since, options);
 }
 
 export { SEARCH_ROOT };
