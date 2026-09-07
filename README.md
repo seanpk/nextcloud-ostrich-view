@@ -58,13 +58,19 @@ real templates, reading `demo/dataset.json` instead of a Nextcloud.
 <p align="center"><em>Latest · Files · a PDF, open in the page · a task list</em></p>
 
 **Latest** is the page she lands on, and the headline. It is one time axis, and
-she arrives on the **Today** line in the middle of it: above the line, the tasks
-that are coming up — furthest away at the top, the soonest just above the line,
-and anything late in red right against it, with a counted line for the tasks
-that carry no due date at all. Below the line, what has happened: files and task
-changes together, newest first, grouped by day, each row naming the folder it
-changed in or the task list it belongs to. Tapping a task row opens its list,
-which is the only place a task is shown in full.
+she arrives on the **Today** line in the middle of it — from a link, from a
+bookmark, from a home-screen icon or after a pull-to-refresh, with the future
+above her thumb to scroll back to and the past below. Every link into the page
+carries the `#today` anchor, which does the job with scripting off; the one URL
+an anchor cannot answer is a plain `/` with no fragment, and `public/stream.js`
+covers that and nothing else.
+
+Above the line, the tasks that are coming up — furthest away at the top, the
+soonest just above the line, and anything late in red right against it, with a
+counted line for the tasks that carry no due date at all. Below the line, what
+has happened: files and task changes together, newest first, grouped by day,
+each row naming the folder it changed in or the task list it belongs to. Tapping
+a task row opens its list, which is the only place a task is shown in full.
 
 Rows newer than her *previous* visit carry a **New** badge — nothing is ever
 hidden by a timestamp, so a badge in the wrong place costs her a badge and not

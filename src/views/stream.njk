@@ -12,7 +12,10 @@
   first, files and task changes interleaved by time alone.
 
   So: scroll up for the future, scroll down for the past, and she arrives on
-  the line between them without a line of JavaScript.
+  the line between them -- the `#today` anchor alone gets her there whenever the
+  URL carries it, with scripting on or off. public/stream.js, loaded at the
+  bottom of this file, is for the one URL that cannot: plain `/`, from a
+  bookmark or a home-screen icon.
 #}
 
 {% block heading %}
@@ -95,4 +98,14 @@
       <p class="section__more">{{ moreLabel }}</p>
     {% endif %}
   </section>
+{% endblock %}
+
+{#
+  Landing on Today when the URL has no fragment to land on -- a bookmark, a
+  home-screen icon, a typed address. Progressive enhancement only: every link
+  into this page still carries `/#today`, and with JavaScript off the anchor is
+  the whole mechanism, exactly as it was.
+#}
+{% block scripts %}
+  <script src="/public/stream.js?v={{ appVersion }}" defer></script>
 {% endblock %}
