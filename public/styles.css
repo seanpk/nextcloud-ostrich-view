@@ -1429,22 +1429,95 @@ a.stream__row:focus-visible {
 }
 
 /*
- * "Also 3 tasks without a due date", immediately above the Today line.
+ * "Also 3 tasks without a due date", immediately above the Today line -- a
+ * twisty, closed, with the tasks themselves inside it.
  *
- * A line, not a row: these tasks are not on the axis, and dressing them as a
- * row would put them on it. It is still a link, and still a comfortable thing
- * to hit with a thumb -- hence the padding rather than bare text.
+ * It used to be a link to /tasks. Latest is already the cross-list view, so the
+ * undated bucket was the one thing on this page she had to leave the page to
+ * read; now she taps it open in place. Closed by default, because the axis is
+ * what this page is and a block of dateless rows above the line would push it
+ * down the screen.
+ *
+ * The summary is a full-width row, not a line of text: it is the only thing
+ * above the Today line that is tapped rather than followed, and a thumb needs
+ * somewhere to land. Dashed, like the "nothing to open here" tiles -- it is not
+ * a place, it is a lid.
  */
 .stream__undated {
   margin: 0.8rem 0 0;
-  font-size: 1rem;
 }
 
-.stream__undated a {
-  display: inline-block;
+.stream__undated > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   min-height: var(--tap);
-  padding: 0.9rem 0.2rem;
+  padding: 0.5rem 0.7rem;
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
   color: var(--accent-dark);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  /* A long summary at a large reader font wraps rather than widening the page;
+     ux.spec.js measures exactly that at a doubled root size. */
+  overflow-wrap: anywhere;
+
+  /*
+   * Our own marker, not the engine's.
+   *
+   * Chromium draws a small triangle, WebKit draws its own via
+   * ::-webkit-details-marker, and the two sit at different sizes and different
+   * distances from the text -- so the row would be a different shape on her
+   * phone than on the desktop it was designed on. Both are switched off and the
+   * chevron below is drawn instead, which also gives it a colour and a size
+   * this stylesheet controls.
+   */
+  list-style: none;
+}
+
+.stream__undated > summary::-webkit-details-marker {
+  display: none;
+}
+
+/*
+ * The chevron: two borders of a square, turned 45 degrees. Points right when
+ * the twisty is shut and down when it is open, which is the one convention
+ * every disclosure on the web shares.
+ *
+ * Sized in px as well as rem for the same reason the artwork is (see --art in
+ * :root): it is a mark, not text, and it should not double when the reader's
+ * font does.
+ */
+.stream__undated > summary::before {
+  content: '';
+  flex: 0 0 auto;
+  width: min(0.5rem, 9px);
+  height: min(0.5rem, 9px);
+  margin: 0 0.15rem 0 0.2rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.stream__undated[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+/* Someone who has asked for less movement gets none: the twisty still opens,
+   the chevron simply arrives already turned. */
+@media (prefers-reduced-motion: reduce) {
+  .stream__undated > summary::before {
+    transition: none;
+  }
+}
+
+/* Opened: the rows sit under the lid, indented by nothing -- they are ordinary
+   stream rows and should line up with every other row on the page. */
+.stream__list--undated {
+  margin-top: 0.5rem;
 }
 
 /* The caveat when a task list (or the whole calendar home) would not answer.

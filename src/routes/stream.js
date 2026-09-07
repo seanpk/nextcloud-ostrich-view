@@ -1,7 +1,13 @@
 import { findRecent, SEARCH_LIMIT } from '../nextcloud/search.js';
 import { fetchTodos, listTaskCalendars } from '../nextcloud/caldav.js';
 import { buildStream, buildTimeline, fileEvents, formatVisitLabel } from '../lib/stream.js';
-import { sortUpcoming, taskEvents, undatedOpenCount, upcomingTasks } from '../lib/stream-tasks.js';
+import {
+  sortUndated,
+  sortUpcoming,
+  taskEvents,
+  undatedTasks,
+  upcomingTasks,
+} from '../lib/stream-tasks.js';
 
 /**
  * The stream ("Latest") -- the page she lands on.
@@ -9,7 +15,9 @@ import { sortUpcoming, taskEvents, undatedOpenCount, upcomingTasks } from '../li
  * One time axis. Below the Today line: what has been changing, newest first,
  * grouped by day, files and task changes interleaved, with the rows newer than
  * her previous sitting badged New. Above it: what is coming, the open tasks'
- * due dates, furthest away at the top and overdue right above the line. `/`
+ * due dates, furthest away at the top and overdue right above the line, and --
+ * behind a closed twisty on the line itself -- the open tasks that carry no due
+ * date at all, which are the one thing this page could not show before. `/`
  * links here as `/#today`, so she opens on the line with the future above her
  * thumb and the past below it -- and that anchor is the mechanism, working with
  * scripting off. It only fails where there is no fragment to answer: a bookmark
@@ -251,15 +259,15 @@ export default async function registerStreamRoutes(app) {
 
     const events = fileEvents(found.entries);
     const upcoming = [];
+    const undated = [];
     const updates = {};
-    let undatedCount = 0;
 
     for (const { calendar, todos } of taskHalf.lists) {
       const { events: happened, updates: sightings } = taskEvents(todos, calendar, seen, { now });
       events.push(...happened);
       upcoming.push(...upcomingTasks(todos, calendar, { now }));
+      undated.push(...undatedTasks(todos, calendar));
       Object.assign(updates, sightings);
-      undatedCount += undatedOpenCount(todos);
     }
 
     const history = buildStream(events, {
@@ -272,13 +280,15 @@ export default async function registerStreamRoutes(app) {
       truncated: found.truncated,
     });
 
-    const { days, newCount, moreLabel, total, future, undatedLabel, moreUpcomingLabel } =
+    const { days, newCount, moreLabel, total, future, undated: undatedBlock, moreUpcomingLabel } =
       buildTimeline({
         // Each list's rows arrive already ordered; merged, they need one more
         // pass to become a single axis.
         upcoming: sortUpcoming(upcoming),
+        // The undated rows have no axis to be merged onto, so their one pass is
+        // alphabetical: by list, then by task. See `sortUndated`.
+        undated: sortUndated(undated),
         history,
-        undatedCount,
         now,
         limit: SEARCH_LIMIT,
       });
@@ -297,7 +307,9 @@ export default async function registerStreamRoutes(app) {
       moreLabel,
       // What is coming, above the Today line.
       future,
-      undatedLabel,
+      // The twisty above the line: `{label, rows}`, or null when every open
+      // task has a due date.
+      undated: undatedBlock,
       moreUpcomingLabel,
       // Zero rows in the HISTORY, which is the one case the "Nothing has
       // changed yet" line is allowed to appear under. Deliberately blind to

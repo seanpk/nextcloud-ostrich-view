@@ -10,8 +10,9 @@ import {
   CHANGE_TOLERANCE_MS,
   FRESH_STAMP_MS,
   SEEN_REFRESH_MS,
+  sortUndated,
   taskEvents,
-  undatedOpenCount,
+  undatedTasks,
   upcomingTasks,
 } from '../../src/lib/stream-tasks.js';
 import { ledgerKey } from '../../src/store/tasks-seen.js';
@@ -412,7 +413,7 @@ test('a cancelled task says nothing at all', () => {
   assert.deepEqual(events, [], 'the task pages leave it out of both sections; so does this');
   assert.deepEqual(Object.keys(updates), []);
   assert.deepEqual(upcomingTasks([called_off], LIST, { now: NOW }), []);
-  assert.equal(undatedOpenCount([called_off]), 0);
+  assert.deepEqual(undatedTasks([called_off], LIST), []);
 });
 
 test('a task with no UID is passed over rather than half-remembered', () => {
@@ -535,7 +536,9 @@ test('finished and undated tasks are not on the timeline above the line', () => 
   );
 });
 
-test('undatedOpenCount counts the open tasks with nowhere on the axis to be', () => {
+// --- the tasks with no date at all -----------------------------------------
+
+test('undatedTasks is the open tasks with nowhere on the axis to be', () => {
   const todos = [
     todo({ uid: 'a', summary: 'One' }),
     todo({ uid: 'b', summary: 'Two' }),
@@ -544,9 +547,60 @@ test('undatedOpenCount counts the open tasks with nowhere on the axis to be', ()
     todo({ uid: 'd', summary: 'Called off', isCancelled: true }),
   ];
 
-  assert.equal(undatedOpenCount(todos), 2);
-  assert.equal(undatedOpenCount([]), 0);
-  assert.equal(undatedOpenCount(undefined), 0);
+  assert.deepEqual(
+    undatedTasks(todos, LIST).map((row) => row.task.summary),
+    ['One', 'Two']
+  );
+  assert.deepEqual(undatedTasks([], LIST), []);
+  assert.deepEqual(undatedTasks(undefined, LIST), []);
+});
+
+test('an undated row is a task row that says it has no date', () => {
+  const [row] = undatedTasks([todo({ uid: 'a', summary: 'Read chapter 4' })], LIST);
+
+  assert.equal(row.kind, 'task-undated');
+  // Where a due row says "Due tomorrow". A blank second line would read as a
+  // row that failed to load.
+  assert.equal(row.dueLabel, 'No due date');
+  assert.equal(row.task.summary, 'Read chapter 4');
+  assert.equal(row.task.name, 'School Tasks');
+  assert.equal(row.task.href, '/tasks/school-tasks');
+  assert.equal(row.task.uid, 'a');
+  // Nothing to place it on the axis with, and nothing to put on the right of
+  // the row: the template reads both and shows neither.
+  assert.equal(row.at, undefined);
+  assert.equal(row.order, undefined);
+  assert.equal(row.timeLabel, undefined);
+});
+
+test('undated rows run by list, then A-Z inside it', () => {
+  const CHORES = { slug: 'chores', uri: 'chores', displayName: 'Chores', color: '#2f7a3f' };
+
+  const rows = sortUndated([
+    ...undatedTasks(
+      [
+        todo({ uid: 's2', summary: 'Return the library book' }),
+        todo({ uid: 's1', summary: 'chapter 10' }),
+        todo({ uid: 's3', summary: 'Chapter 9' }),
+      ],
+      LIST
+    ),
+    ...undatedTasks([todo({ uid: 'c1', summary: 'Empty the dishwasher' })], CHORES),
+  ]);
+
+  assert.deepEqual(
+    rows.map((row) => `${row.task.name}: ${row.task.summary}`),
+    [
+      'Chores: Empty the dishwasher',
+      // Case-blind and number-aware, like every other list in the app: 9 before
+      // 10, and a lower-case c filed with the upper-case ones.
+      'School Tasks: Chapter 9',
+      'School Tasks: chapter 10',
+      'School Tasks: Return the library book',
+    ]
+  );
+  assert.deepEqual(sortUndated([]), []);
+  assert.deepEqual(sortUndated(undefined), []);
 });
 
 test('every function copes with a list that came back empty', () => {
@@ -554,4 +608,5 @@ test('every function copes with a list that came back empty', () => {
   assert.deepEqual(events, []);
   assert.deepEqual(Object.keys(updates), []);
   assert.deepEqual(upcomingTasks(undefined, LIST, { now: NOW }), []);
+  assert.deepEqual(undatedTasks(undefined, LIST), []);
 });

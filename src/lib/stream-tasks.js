@@ -91,6 +91,14 @@ export const SEEN_REFRESH_MS = 24 * 60 * 60 * 1000;
  */
 export const FRESH_STAMP_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * A-Z as a reader means it: case- and accent-insensitive, and "Chapter 10"
+ * after "Chapter 9". The same collator the task pages and the folder listings
+ * sort by (../nextcloud/caldav.js, ../nextcloud/webdav.js), so no two lists in
+ * this app can disagree about alphabetical order.
+ */
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
 /** ISO string, or null for anything that is not a usable date. */
 function iso(value) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) return null;
@@ -286,7 +294,10 @@ export function taskEvents(todos, list, ledger = {}, options = {}) {
     const { entry, changed } = sight(ledger?.[key] ?? null, todo, context);
     if (changed) updates[key] = entry;
 
-    const task = { ...view, summary: todo.summary ?? 'Untitled task' };
+    // The UID rides along unrendered: it is what lets `buildTimeline` tell
+    // that a row in the undated twisty is the same task as an Added row below
+    // the line, and so badge it New without a second pass over the ledger.
+    const task = { ...view, uid: todo.uid, summary: todo.summary ?? 'Untitled task' };
 
     const completedMs = todo.isCompleted ? (todo.completedAt?.getTime() ?? null) : null;
     const addedMs = msOf(entry.addedAt);
@@ -423,21 +434,71 @@ export function sortUpcoming(rows) {
 }
 
 /**
- * How many open tasks have no due date at all.
+ * The open tasks with no due date at all, as rows.
  *
- * They are not on a timeline, so they cannot be on this page's axis -- but
- * leaving them unmentioned would make the block above Today read as "everything
- * she has to do", which it is not. One line just above the line, linking to
- * Tasks, is the honest amount of room for them.
+ * THEY ARE SHOWN IN PLACE, not linked away to. Latest is already the
+ * cross-list view -- every dated open task is above the line and every
+ * finished one is in the history below it -- so the undated bucket was the one
+ * thing on this page that could not be read here, and sending her to a grid of
+ * task lists to find four chores was the wrong answer for it. They live behind
+ * a closed twisty above the Today line: mentioned, countable, and one tap from
+ * being read, without a block of dateless rows pushing the axis down the page.
+ * Files and Tasks remain the places for browsing by structure.
+ *
+ * Shaped like an `upcomingTasks` row so `task_item` can render them unchanged,
+ * with two differences that follow from having no date: `at` and `order` are
+ * absent (there is nowhere on the axis to be), and `dueLabel` says so in the
+ * muted second line where "Due ..." would go.
+ *
+ * NO CLOCK, because there is no date to read against one -- the label is a
+ * constant, and nothing here is ordered by time. That is the whole difference
+ * between this and `upcomingTasks`.
  *
  * @param {Array<object>} todos
- * @returns {number}
+ * @param {object} list
+ * @returns {Array<object>} `{kind: 'task-undated', dueLabel, task}`, in the
+ *   order the list handed them over -- see `sortUndated`.
  */
-export function undatedOpenCount(todos) {
-  return (todos ?? []).filter(
-    (todo) =>
-      !todo.isCancelled &&
-      !todo.isCompleted &&
-      !(todo.due instanceof Date && !Number.isNaN(todo.due.getTime()))
-  ).length;
+export function undatedTasks(todos, list) {
+  const view = listView(list);
+
+  return (todos ?? [])
+    .filter(
+      (todo) =>
+        !todo.isCancelled &&
+        !todo.isCompleted &&
+        !(todo.due instanceof Date && !Number.isNaN(todo.due.getTime()))
+    )
+    .map((todo) => ({
+      kind: 'task-undated',
+      // Where "Due Tuesday" would be. The row is the same shape as a due row,
+      // so the second line has to say something, and the honest thing it has
+      // to say is that there is no date.
+      dueLabel: 'No due date',
+      task: { ...view, uid: todo.uid ?? null, summary: todo.summary ?? 'Untitled task' },
+    }));
+}
+
+/**
+ * Undated rows in page order: by list, then A-Z within it.
+ *
+ * NOT BY TIME, because there is no time -- and an arbitrary order (whatever
+ * order the REPORTs happened to settle in) would make the same twisty read
+ * differently on every load. Grouping by list first is what makes the block
+ * scannable: the list names run down the second lines in runs rather than
+ * alternating, and the dot beside each one is then a confirmation rather than
+ * the only thing holding the block together.
+ *
+ * Exported for the same reason as `sortUpcoming`: each list's rows arrive
+ * separately, and a concatenation of sorted lists is not sorted.
+ *
+ * @param {Array<object>} rows from `undatedTasks`
+ * @returns {Array<object>} a new array
+ */
+export function sortUndated(rows) {
+  return [...(rows ?? [])].sort(
+    (a, b) =>
+      collator.compare(String(a.task.name), String(b.task.name)) ||
+      collator.compare(String(a.task.summary), String(b.task.summary))
+  );
 }
