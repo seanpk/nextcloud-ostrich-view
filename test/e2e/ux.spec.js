@@ -14,6 +14,61 @@ const MIN_TAP = 44; // px -- the WCAG/Apple floor. Our design aims far above it.
 const INTERACTIVE =
   'a.tile, a.stream__row, .stream__undated > summary, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
 
+/**
+ * Wait for the page to stop moving before anything on it is measured.
+ *
+ * Every assertion in this file is a MEASUREMENT, and a measurement taken
+ * mid-layout is not about the design at all. Two things move a box after the
+ * navigation has resolved: a web font arriving (text reflows, and the row
+ * around it with it) and an image that has not been decoded yet (an <img> with
+ * width/height attributes reserves its box, but one still being laid out can
+ * report a transient one). Under a full parallel run those land later than
+ * they do when a spec is run on its own, which is exactly the shape of the
+ * flake this guards -- `the files page: artwork stays inside its box` failed
+ * once in a full run and passed 24/24 on --repeat-each 4 afterwards.
+ *
+ * It is a floor, not the whole answer: the assertions below poll as well, so a
+ * box that settles even later is retried rather than failed.
+ */
+async function settle(page) {
+  // `.then(() => true)` because the resolved FontFaceSet is not serializable
+  // back across the protocol; we only want to know that it resolved.
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  // Every image the browser has actually decided to fetch. A `loading="lazy"`
+  // thumbnail far below the fold has deliberately NOT been fetched and never
+  // reports `complete`, so waiting on the whole of `document.images` would hang
+  // on every page with a long stream on it -- which is most of them. Those get
+  // their box from the width/height attributes anyway, and the per-element
+  // polls below cover them once something scrolls them into view.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Array.from(document.images).every((img) => {
+          if (img.complete) return true;
+          if (img.loading !== 'lazy') return false;
+          const box = img.getBoundingClientRect();
+          return box.bottom < 0 || box.top > window.innerHeight;
+        })
+      )
+    )
+    .toBe(true);
+}
+
+/**
+ * One element's box as its two extremes, or null while it has none.
+ *
+ * A tap target is judged by its SMALLEST side (both have to clear the floor)
+ * and a piece of artwork by its LARGEST (neither may pass the cap), so one
+ * measurement answers both questions and the pollers below can each read the
+ * end they care about.
+ */
+async function sidesOf(element) {
+  const box = await element.boundingBox();
+  if (box === null) return null;
+  return { min: Math.min(box.width, box.height), max: Math.max(box.width, box.height) };
+}
+
 const PAGES = [
   { name: 'the stream', path: '/', needsLogin: true },
   { name: 'the files page', path: '/files', needsLogin: true },
@@ -34,6 +89,7 @@ for (const target of PAGES) {
   test(`${target.name}: every tap target is at least ${MIN_TAP}px`, async ({ page }) => {
     if (target.needsLogin) await login(page);
     await page.goto(target.path);
+    await settle(page);
 
     const elements = page.locator(INTERACTIVE);
     const count = await elements.count();
@@ -43,18 +99,24 @@ for (const target of PAGES) {
       const element = elements.nth(i);
       if (!(await element.isVisible())) continue;
 
-      const box = await element.boundingBox();
       const label = (await element.innerText().catch(() => '')).trim().slice(0, 40) || `#${i}`;
 
-      expect(box, `no box for ${label}`).not.toBeNull();
-      expect(box.height, `height of "${label}" on ${target.path}`).toBeGreaterThanOrEqual(MIN_TAP);
-      expect(box.width, `width of "${label}" on ${target.path}`).toBeGreaterThanOrEqual(MIN_TAP);
+      // Polled, not read once: a box measured while the page is still settling
+      // is not the design's box. `-1` stands in for an element that has no box
+      // at all, so the matcher never sees a null and the poll simply tries
+      // again -- and says which element it gave up on.
+      await expect
+        .poll(async () => (await sidesOf(element))?.min ?? -1, {
+          message: `smallest side of "${label}" on ${target.path}`,
+        })
+        .toBeGreaterThanOrEqual(MIN_TAP);
     }
   });
 
   test(`${target.name}: the page never scrolls sideways`, async ({ page }) => {
     if (target.needsLogin) await login(page);
     await page.goto(target.path);
+    await settle(page);
 
     const { scrollWidth, clientWidth } = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
@@ -180,10 +242,14 @@ test('in full screen, tap targets and horizontal scroll still meet the same bar'
   for (let i = 0; i < count; i += 1) {
     const element = elements.nth(i);
     if (!(await element.isVisible())) continue;
-    const box = await element.boundingBox();
-    expect(box, `no box for element #${i}`).not.toBeNull();
-    expect(box.height).toBeGreaterThanOrEqual(MIN_TAP);
-    expect(box.width).toBeGreaterThanOrEqual(MIN_TAP);
+    // Polled for the same reason as the loop at the top of this file, and with
+    // more cause: immersive mode collapses the chrome, so the boxes are still
+    // moving when the class lands.
+    await expect
+      .poll(async () => (await sidesOf(element))?.min ?? -1, {
+        message: `smallest side of element #${i} in full screen`,
+      })
+      .toBeGreaterThanOrEqual(MIN_TAP);
   }
 
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({
@@ -227,6 +293,7 @@ for (const [where, path] of ART_PAGES) {
     test(`${where}: artwork stays inside its box ${at}`, async ({ page }) => {
       await login(page);
       await page.goto(path);
+      await settle(page);
 
       if (rootFontSize) {
         // 36px root == a browser default of 32px against the app's 112.5%,
@@ -251,11 +318,17 @@ for (const [where, path] of ART_PAGES) {
         const element = elements.nth(i);
         if (!(await element.isVisible())) continue;
         await element.scrollIntoViewIfNeeded();
-        const box = await element.boundingBox();
         const what = (await element.getAttribute('class')) ?? `#${i}`;
-        expect(box, `no box for ${what}`).not.toBeNull();
-        expect(box.width, `width of ${what} on ${path}`).toBeLessThanOrEqual(MAX_ART);
-        expect(box.height, `height of ${what} on ${path}`).toBeLessThanOrEqual(MAX_ART);
+
+        // Polled, not read once -- see `settle`. Infinity stands in for an
+        // element that has no box, so a null never reaches the matcher: the
+        // poll retries and, if it never gets one, names the element it was
+        // waiting on rather than throwing on a property of null.
+        await expect
+          .poll(async () => (await sidesOf(element))?.max ?? Number.POSITIVE_INFINITY, {
+            message: `largest side of ${what} on ${path}`,
+          })
+          .toBeLessThanOrEqual(MAX_ART);
       }
 
       // And the page still does not slide sideways under her thumb, which is
@@ -306,6 +379,7 @@ for (const rootFontSize of [null, '36px']) {
   test(`the opened undated twisty fits and stays tappable ${at}`, async ({ page }) => {
     await login(page);
     await page.goto('/');
+    await settle(page);
 
     if (rootFontSize) {
       // Through the CSSOM, not addStyleTag: the app's CSP refuses an injected
@@ -329,10 +403,13 @@ for (const rootFontSize of [null, '36px']) {
     for (let i = 0; i < count; i += 1) {
       const row = rows.nth(i);
       await row.scrollIntoViewIfNeeded();
-      const box = await row.boundingBox();
-      expect(box, `no box for undated row #${i}`).not.toBeNull();
-      expect(box.height, `height of undated row #${i}`).toBeGreaterThanOrEqual(MIN_TAP);
-      expect(box.width, `width of undated row #${i}`).toBeGreaterThanOrEqual(MIN_TAP);
+      // Polled: these rows arrive when the twisty opens, so they are the newest
+      // boxes on the page and the likeliest to be measured mid-layout.
+      await expect
+        .poll(async () => (await sidesOf(row))?.min ?? -1, {
+          message: `smallest side of undated row #${i} ${at}`,
+        })
+        .toBeGreaterThanOrEqual(MIN_TAP);
     }
 
     const { scrollWidth, clientWidth } = await page.evaluate(() => ({
