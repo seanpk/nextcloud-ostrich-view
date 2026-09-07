@@ -23,7 +23,8 @@ It is built for one person who does not want to learn Nextcloud:
 - **One passphrase, no username.** Each passphrase maps to a named viewer.
 - **Phone first.** Big buttons, one tap per step, a Back button on every page.
 - **Nothing downloads.** Images and PDFs open inline, in the page.
-- **"New since you last looked"** on the home page, so there is no hunting.
+- **It opens on what has changed.** A stream of recent changes, newest first,
+  with anything since her last visit marked **New** — no hunting.
 - **Read-only by construction.** The Nextcloud client speaks only `PROPFIND`,
   `SEARCH`, `REPORT` and `GET`; the app registers only `GET` routes plus the
   login/logout `POST`s. The viewer account's app password never reaches the
@@ -42,25 +43,30 @@ Every shot below is a phone-sized capture of `npm run demo` — the real app, th
 real templates, reading `demo/dataset.json` instead of a Nextcloud.
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="190" alt="Home page: 'New since you last looked' lists two recently changed files with the folder each lives in, above big Biology 101, Essays and Math 210 folder buttons.">
-  <img src="docs/screenshots/folder.png" width="190" alt="A Lectures folder listing four files, each a large button with a real thumbnail or a file-type icon and its size.">
+  <img src="docs/screenshots/stream.png" width="190" alt="The Latest page: 'You were last here on Sat, Sep 5', then rows grouped under Today and Yesterday — each a file name, the folder it lives in, the time, and a New badge on the ones since her last visit.">
+  <img src="docs/screenshots/files.png" width="190" alt="The Files page: big Biology 101, Essays and Math 210 folder buttons under a Latest / Files / Tasks toggle.">
   <img src="docs/screenshots/pdf.png" width="190" alt="A PDF rendered inline on the page, with the Back button still reachable at the top.">
   <img src="docs/screenshots/tasks.png" width="190" alt="The School task list: an overdue item in red, then a task with its due date, note, priority and percent-done.">
 </p>
 
-<p align="center"><em>Home · a folder · a PDF, open in the page · a task list</em></p>
+<p align="center"><em>Latest · Files · a PDF, open in the page · a task list</em></p>
 
-"New since you last looked" is the headline: it names what changed and the
-folder it changed in, so there is no hunting. Files open **in the page** —
-nothing is ever downloaded, and Back is reachable from everywhere.
+**Latest** is the page she lands on, and the headline: what has changed, newest
+first, grouped by day, each row naming the folder it changed in. Rows newer than
+her *previous* visit carry a **New** badge — nothing is ever hidden by a
+timestamp, so a badge in the wrong place costs her a badge and not the list.
+**Latest / Files / Tasks** sits on every page, so any section is one tap away.
+Files open **in the page** — nothing is ever downloaded, and Back is reachable
+from everywhere.
 
 <p align="center">
-  <img src="docs/screenshots/photo.png" width="210" alt="A photo opened inline on its own page, with Back and the Files/Tasks toggle above it.">
-  <img src="docs/screenshots/tasks-home.png" width="210" alt="The Tasks side of the toggle, showing the two shared task lists as large buttons.">
-  <img src="docs/screenshots/login.png" width="210" alt="The login page: the Ostrich View logo, one 'Your passphrase' field and a large Enter button.">
+  <img src="docs/screenshots/folder.png" width="190" alt="A Lectures folder listing four files, each a large button with a real thumbnail or a file-type icon and its size.">
+  <img src="docs/screenshots/photo.png" width="190" alt="A photo opened inline on its own page, with Back and the Latest/Files/Tasks toggle above it.">
+  <img src="docs/screenshots/tasks-home.png" width="190" alt="The Tasks side of the toggle, showing the two shared task lists as large buttons.">
+  <img src="docs/screenshots/login.png" width="190" alt="The login page: the Ostrich View logo, one 'Your passphrase' field and a large Enter button.">
 </p>
 
-<p align="center"><em>A photo · the task lists · the one-field login</em></p>
+<p align="center"><em>A folder · a photo · the task lists · the one-field login</em></p>
 
 Task lists put everything still to do first — subtasks indented under their
 parent, overdue in red — then what was finished, newest first:
@@ -84,9 +90,10 @@ ordinary Nextcloud sharing.
    an account (skeleton files, calendar home) until its first login, and the
    app's task discovery needs the calendar home to exist. That first login is
    also what seeds `Documents`, `Photos`, `Templates` and a couple of sample
-   files in the account's own storage — leave them. The home page shows only
-   what has been shared **with** the account, not what it happens to own, so
-   this skeleton content never reaches the page (see `src/nextcloud/shares.js`).
+   files in the account's own storage — leave them. The app shows only what has
+   been shared **with** the account, not what it happens to own, so this
+   skeleton content reaches neither the Files page nor the stream (see
+   `src/nextcloud/shares.js`).
 
    Nothing to configure for `share_folder` either. If the instance sets it —
    Nextcloud's own default is `/Shared` — received shares are mounted inside a
@@ -224,8 +231,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ### 2.2 `config/viewers.json`
 
-The viewer list — who can log in, and under which name their "new since you
-last looked" is tracked. It is gitignored; only the example is committed.
+The viewer list — who can log in, and under which name "when did they last
+look?" is tracked. It is gitignored; only the example is committed.
 
 ```bash
 cp config/viewers.example.json config/viewers.json
@@ -356,9 +363,9 @@ back across the tunnel.
 - `preview-cache/` — thumbnails fetched from Nextcloud, keyed by file id and
   etag. Safe to delete; it refills on demand.
 - `state.json` — each viewer's current and previous visit timestamps, which is
-  what "new since you last looked" compares against. Deleting it resets
-  everyone's baseline to now, so the section will look empty until something
-  changes.
+  what the stream's **New** badges are measured against. Deleting it resets
+  everyone's baseline to now, so nothing is badged until something changes; the
+  stream itself is unaffected, because it never hides a row.
 
 Both survive `docker compose restart`, rebuilds and reboots. `./config` is
 mounted read-only; the container cannot rewrite its own auth config.
@@ -495,18 +502,18 @@ shipping one; only the address the WebDAV requests go to is different.
 You get a college student's Nextcloud: **Biology 101** (lecture PDFs, a lab
 photo, a reading list), **Math 210** (problem sets, a graph), an **Essays**
 folder, and two task lists — **School** (with a nested subtask, one overdue
-item and a couple already ticked off) and **Apartment**. The home page opens
-with **"New since you last looked"** already filled in: the demo seeds a
-sitting two days ago, and two files in the dataset are stamped within that
-window, so the section is populated on the first load instead of never (a
-brand-new viewer has nothing to compare against — see §5 of `PLAN.md` and
+item and a couple already ticked off) and **Apartment**. It opens on **Latest**
+with a few days of changes already on it, the recent ones badged **New**: the
+demo seeds a sitting two days ago, and several files in the dataset are stamped
+inside that window, so the badges are there on the very first load instead of
+never (a brand-new viewer has nothing to compare against — see
 `src/store/visits.js`).
 
 The dataset also seeds `Documents`, `Photos`, `Templates` and a few sample
 files — exactly the skeleton content a freshly created Nextcloud account gets
 on its first login — deliberately **not** marked as shared, so the demo shows
-off the home page hiding them. Only entries with `"sharedBy"` set in
-`demo/dataset.json` become folder buttons.
+off the app hiding them. Only entries with `"sharedBy"` set in
+`demo/dataset.json` become folder buttons, or stream rows.
 
 Nothing is written to `./data` or `config/`. The viewer list, the preview cache
 and `state.json` live in a temp directory that is deleted on Ctrl-C, and the
