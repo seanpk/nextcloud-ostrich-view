@@ -28,14 +28,31 @@ Latest is already the cross-list view. Every dated open task is above the line,
 every finished one is in the history below it — so the undated bucket was the
 one thing on the page a reader had to leave the page to see, and where it sent
 her was a grid of list buttons rather than the four chores she was after. It is
-now a JS-free `<details>` sitting where the line was: the same wording as the
-summary ("Also 3 tasks without a due date", singular handled), closed by
-default so the axis is not pushed down the screen, and the tasks themselves as
-ordinary `task_item` rows inside it — same icon as a due row, "No due date"
-where the due row names a day, sorted by list then A-Z, each opening its list
-page. Files and Tasks remain the places for browsing by structure, and the
-"all tasks together" issue is unaffected: when it lands it is a Tasks-side
-view, not this page's escape hatch.
+now a JS-free `<details>`: the same wording as the summary ("Also 3 tasks
+without a due date", singular handled), closed by default, and the tasks
+themselves as ordinary `task_item` rows inside it — same icon as a due row,
+"No due date" where the due row names a day, sorted by list then A-Z, each
+opening its list page. Files and Tasks remain the places for browsing by
+structure, and the "all tasks together" issue is unaffected: when it lands it
+is a Tasks-side view, not this page's escape hatch.
+
+**Amended after a day on the owner's phone — the twisty moved UNDER the Today
+heading.** It first went where the old link had been, immediately above the
+line, and that inherited the link's mistake in a second form. Two things were
+wrong with it, and they are the same thing twice:
+
+- **An undated task is not later.** The block above the line is what is coming,
+  ordered by how far off it is. A chore with no date has no place in that
+  ordering at all; what it is, is part of the state of *today*.
+- **Above the line is off screen on arrival.** `#today` scrolls the heading to
+  the top of the viewport, so everything above it is behind her — and a mention
+  she has to scroll back to find is barely a mention, which is the one thing
+  this block cannot afford to be.
+
+So `day_group(day, undated)` renders it inside today's group: directly under
+the heading, before the day's history rows, and before the "Nothing has changed
+yet" line. Still closed by default — opening it pushes the history down and
+moves nothing above it, so the line she landed on stays put.
 
 ## What changes for the reader
 
@@ -183,7 +200,8 @@ todosByList = await Promise.allSettled(calendars.map(c => fetchTodos(client, c.s
 
 ### 5. Templates and CSS
 
-- `stream.njk`: future groups, then the undated twisty, then `<h2 id="today">`,
+- `stream.njk`: future groups, then `<h2 id="today">` with the undated twisty
+  directly under it (see the amendment above),
   then the history. `_stream.njk` gains `task_item(event)` (icon by kind: a
   check for finished, a plus for added, a pencil for changed, a small calendar
   for due; four tiny SVGs in `public/icons/`), the list name with its accent
@@ -216,10 +234,11 @@ the warning logs once; calendar PROPFIND failing → `tasksUnavailable` line).
 
 E2E: a finished task appears between file rows in time order with its list name;
 future tasks above Today, overdue in red just above the line; the "Also N tasks
-without a due date" summary is visible and ≥44px with its rows hidden until it
-is tapped, after which they are visible and link to `/tasks/<slug>`, at the
-normal root font and at a doubled one, with no horizontal overflow either way;
-landing on `/#today` puts Today in view on the phone with JS off; the
+without a due date" summary sits under the Today heading, is in the viewport on
+landing (plain `/`, script on, phone viewport) and ≥44px, with its rows hidden
+until it is tapped, after which they are visible and link to `/tasks/<slug>`,
+at the normal root font and at a doubled one, with no horizontal overflow
+either way; landing on `/#today` puts Today in view on the phone with JS off; the
 failing-list mock still renders the page.
 
 ### 8. Docs

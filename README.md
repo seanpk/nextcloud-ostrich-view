@@ -49,7 +49,7 @@ Every shot below is a phone-sized capture of `npm run demo` — the real app, th
 real templates, reading `demo/dataset.json` instead of a Nextcloud.
 
 <p align="center">
-  <img src="docs/screenshots/stream.png" width="190" alt="The Latest page: two overdue tasks in red under an Overdue heading, a closed twisty reading 'Also 3 tasks without a due date', then the Today divider and rows of files and task changes with New badges on the ones since her last visit.">
+  <img src="docs/screenshots/stream.png" width="190" alt="The Latest page: two overdue tasks in red under an Overdue heading, then the Today divider, a closed twisty reading 'Also 3 tasks without a due date' directly under it, and rows of files and task changes with New badges on the ones since her last visit.">
   <img src="docs/screenshots/files.png" width="190" alt="The Files page: big Biology 101, Essays and Math 210 folder buttons under a Latest / Files / Tasks toggle.">
   <img src="docs/screenshots/pdf.png" width="190" alt="A PDF rendered inline on the page, with the Back button still reachable at the top.">
   <img src="docs/screenshots/tasks.png" width="190" alt="The School task list: an overdue item in red, then a task with its due date, note, priority and percent-done.">
@@ -66,13 +66,15 @@ an anchor cannot answer is a plain `/` with no fragment, and `public/stream.js`
 covers that and nothing else.
 
 Above the line, the tasks that are coming up — furthest away at the top, the
-soonest just above the line, and anything late in red right against it. Tasks
-that carry no due date at all sit on the line itself, behind a closed twisty
-counting them (“Also 3 tasks without a due date”); tapping it opens them in
-place, as ordinary task rows. Below the line, what
-has happened: files and task changes together, newest first, grouped by day,
-each row naming the folder it changed in or the task list it belongs to. Tapping
-a task row opens its list, which is the only place a task is shown in full.
+soonest just above the line, and anything late in red right against it.
+Directly *under* the Today heading, where she lands, a closed twisty counts the
+tasks that carry no due date at all (“Also 3 tasks without a due date”);
+tapping it opens them in place, as ordinary task rows. They sit there rather
+than above the line because an undated task is not later — it is open now — and
+because above the line is off screen on arrival. Below the line, what has
+happened: files and task changes together, newest first, grouped by day, each
+row naming the folder it changed in or the task list it belongs to. Tapping a
+task row opens its list, which is the only place a task is shown in full.
 
 Rows newer than her *previous* visit carry a **New** badge — nothing is ever
 hidden by a timestamp, so a badge in the wrong place costs her a badge and not
