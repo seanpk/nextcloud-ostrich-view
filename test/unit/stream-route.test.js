@@ -138,6 +138,47 @@ function editedChores() {
   });
 }
 
+/**
+ * The fixtures plus a task list shared just now, holding two tasks that were
+ * both written months ago: one still open, one long finished.
+ *
+ * This is what sharing an existing list looks like from here -- nothing in it
+ * is new, and its stamps say nothing about when it reached us.
+ */
+function withNewlySharedList() {
+  const ics = (lines) =>
+    ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VTODO', ...lines, 'END:VTODO', 'END:VCALENDAR', ''].join(
+      '\r\n'
+    );
+
+  return [
+    ...CALENDAR_FIXTURES,
+    {
+      uri: 'garden',
+      displayName: 'Garden',
+      ctag: 'http://sabre.io/ns/sync/99',
+      color: '#2f7a3f',
+      components: ['VTODO'],
+      todos: [
+        ics([
+          'UID:garden-hedge',
+          'DTSTAMP:20250802T091500Z',
+          'SUMMARY:Cut the hedge back',
+          'STATUS:NEEDS-ACTION',
+        ]),
+        ics([
+          // Ticked off in August, and the server bumped DTSTAMP to match.
+          'UID:garden-bulbs',
+          'DTSTAMP:20250803T140000Z',
+          'SUMMARY:Plant the bulbs',
+          'STATUS:COMPLETED',
+          'COMPLETED:20250803T140000Z',
+        ]),
+      ],
+    },
+  ];
+}
+
 /** Log in as mom and come back with the cookie header for later requests. */
 async function login(app) {
   const response = await app.inject({
@@ -193,6 +234,22 @@ function rowLabels(body) {
   return [...body.matchAll(/<span class="stream__what">([^<]*)<\/span>/g)].map((m) =>
     m[1].trim()
   );
+}
+
+/**
+ * Every row for one task, as `{label, badged}` -- there can be two (a task that
+ * turned up and was then finished), which is exactly what some of these tests
+ * are about.
+ */
+function rowsFor(body, summary) {
+  const blocks = body.match(/<li class="stream__item[^"]*">[\s\S]*?<\/li>/g) ?? [];
+  return blocks
+    .filter((block) => block.includes(`>${summary}<`))
+    .map((block) => ({
+      label: /<span class="stream__what">([^<]*)<\/span>/.exec(block)?.[1]?.trim() ?? null,
+      badged: block.includes('stream__badge'),
+      time: /<span class="stream__time">([^<]*)<\/span>/.exec(block)?.[1]?.trim() ?? null,
+    }));
 }
 
 /** The names of the rows carrying a New badge -- files and tasks alike. */
@@ -346,6 +403,61 @@ test('stream: the same task is not announced twice, however often she looks', as
   const ledger = JSON.parse(readFileSync(join(dir, 'tasks-seen.json'), 'utf8'));
   assert.ok(ledger['school-tasks|task-read'], Object.keys(ledger).join(', '));
   assert.ok(!('chores|chore-shed' in ledger), 'a cancelled task is not even remembered');
+});
+
+test('stream: a list shared today puts its open tasks at the top, badged', async () => {
+  const dir = dataDir();
+  const { mock, url } = await bootMock();
+  const app = await boot({ baseUrl: url, dir, streamCache: createTtlCache({ ttlMs: 0 }) });
+
+  // She has been away for days, so there is a baseline for the badges to be
+  // measured against.
+  backdate(dir, LAST_VISIT);
+  const session = await login(app);
+
+  // The first load is the backfill: it meets the household and writes the
+  // ledger, so the second load's new tasks are tasks that TURNED UP.
+  await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  // The owner shares another list. Everything in it was written last August.
+  mock.setCalendars(withNewlySharedList());
+  clearTaskCache();
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+  assert.equal(response.statusCode, 200);
+
+  // The open one appeared TO US now: top of the history, badged New. Dated by
+  // its own stamp it would have landed a year down the page with no badge --
+  // the one event the ledger exists to catch, invisible.
+  const hedge = rowsFor(response.body, 'Cut the hedge back');
+  assert.equal(hedge.length, 1, 'one row, not an Added and a Changed');
+  assert.equal(hedge[0].label, 'Added');
+  assert.equal(hedge[0].badged, true, 'and she has not seen it before');
+  assert.equal(
+    historyNames(response.body)[0],
+    'Cut the hedge back',
+    'the newest thing that has happened'
+  );
+
+  // The finished one is not "added today": its news is that it was finished,
+  // last August, and its bumped DTSTAMP means that is its only row. (The clock
+  // time is whatever the process zone makes of 14:00Z, so only its shape is
+  // asserted -- CI runs in UTC and a household does not.)
+  const bulbs = rowsFor(response.body, 'Plant the bulbs');
+  assert.deepEqual(
+    bulbs.map((row) => row.label),
+    ['Finished']
+  );
+  assert.equal(bulbs[0].badged, false, 'finished a year ago is not news');
+  assert.match(bulbs[0].time, /^\d{1,2}:\d{2} (AM|PM)$/);
+
+  // ...and the ledger now holds both, dated the way the rows are.
+  const ledger = JSON.parse(readFileSync(join(dir, 'tasks-seen.json'), 'utf8'));
+  assert.ok(
+    Date.parse(ledger['garden|garden-hedge'].addedAt) > Date.parse('2026-01-01'),
+    `dated now, not by its stamp: ${ledger['garden|garden-hedge'].addedAt}`
+  );
+  assert.equal(ledger['garden|garden-bulbs'].addedAt, '2025-08-03T14:00:00.000Z');
 });
 
 test('stream: editing a task turns into one Changed row on the next load', async () => {

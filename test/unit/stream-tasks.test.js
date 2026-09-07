@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   CHANGE_TOLERANCE_MS,
+  FRESH_STAMP_MS,
   SEEN_REFRESH_MS,
   taskEvents,
   undatedOpenCount,
@@ -129,6 +130,143 @@ test('an Added row keeps its date even after the task is edited', () => {
   const added = events.find((e) => e.kind === 'task-added');
 
   assert.equal(added.at.toISOString(), '2026-09-05T08:00:00.000Z', 'frozen at first sighting');
+});
+
+// --- which date a first sighting gets --------------------------------------
+
+/**
+ * A ledger that already knows this household, so a UID we have never seen is a
+ * task that TURNED UP rather than one we are meeting in a backfill. The entry
+ * in it is for another task entirely -- its content does not matter, only that
+ * the ledger is not empty.
+ */
+const POPULATED = {
+  [ledgerKey('chores', 'chore-bins')]: {
+    firstSeenAt: '2026-09-01T08:00:00.000Z',
+    addedAt: '2026-09-01T08:00:00.000Z',
+    stampAt: '2026-09-01T08:00:00.000Z',
+    etag: 'etag-bins',
+    changedAt: null,
+    lastSeenAt: NOW.toISOString(),
+  },
+};
+
+/** A stamp `ms` before NOW, as a Date. */
+function ago(ms) {
+  return new Date(NOW.getTime() - ms);
+}
+
+test('an empty ledger is a backfill: every task keeps its own old stamp', () => {
+  // A first deploy, or a wiped data volume. Those stamps are real, and the
+  // burst of rows they produce IS the household's history -- whereas dating
+  // forty tasks "now" would be a page of identical timestamps claiming
+  // everything happened this minute.
+  const old_task = todo({ stampAt: ago(90 * 24 * 60 * 60 * 1000) });
+
+  const { events } = taskEvents([old_task], LIST, {}, { now: NOW });
+
+  assert.equal(events[0].kind, 'task-added');
+  assert.equal(events[0].at.toISOString(), old_task.stampAt.toISOString());
+});
+
+test('a task that turns up later with an old stamp is Added now, not in July', () => {
+  // A list shared long after its tasks were written, or a task dragged from one
+  // list into another. It did not appear three months ago; it appeared to US
+  // now -- and dating it by the stamp would bury the one event this ledger
+  // exists to catch months down the page, unbadged.
+  const { events, updates } = taskEvents(
+    [todo({ stampAt: ago(90 * 24 * 60 * 60 * 1000) })],
+    LIST,
+    POPULATED,
+    { now: NOW }
+  );
+
+  assert.deepEqual(kinds(events), ['task-added']);
+  assert.equal(events[0].at.toISOString(), NOW.toISOString());
+  assert.equal(updates[ledgerKey('school-tasks', 'task-1')].addedAt, NOW.toISOString());
+});
+
+test('a task written this morning keeps its stamp, however new to us it is', () => {
+  // Inside a day, the stamp and the arrival are the same event as far as any
+  // reader is concerned -- she was asleep for most of it.
+  const stampAt = ago(3 * 60 * 60 * 1000);
+
+  const { events } = taskEvents([todo({ stampAt })], LIST, POPULATED, { now: NOW });
+
+  assert.equal(events[0].at.toISOString(), stampAt.toISOString());
+});
+
+test('a day old exactly still counts as fresh; a day and a minute does not', () => {
+  const dateOf = (stampAt) =>
+    taskEvents([todo({ stampAt })], LIST, POPULATED, { now: NOW }).events[0].at.toISOString();
+
+  assert.equal(dateOf(ago(FRESH_STAMP_MS)), ago(FRESH_STAMP_MS).toISOString());
+  assert.equal(dateOf(ago(FRESH_STAMP_MS + 60_000)), NOW.toISOString());
+});
+
+test('a stamp from far in the future is not "fresh" either', () => {
+  // A clock that jumped on the phone that wrote it. Believing it would park the
+  // row above the Today line, among the things that have not happened yet.
+  const { events } = taskEvents(
+    [todo({ stampAt: new Date(NOW.getTime() + 40 * 24 * 60 * 60 * 1000) })],
+    LIST,
+    POPULATED,
+    { now: NOW }
+  );
+
+  assert.equal(events[0].at.toISOString(), NOW.toISOString());
+});
+
+test('an old task that arrives already finished is dated by its own stamp', () => {
+  // Its news is the Finished row, at COMPLETED, where it belongs. "Added today"
+  // about a chore finished in July would simply be false.
+  const completedAt = ago(60 * 24 * 60 * 60 * 1000);
+  const done = todo({
+    isCompleted: true,
+    completedAt,
+    stampAt: new Date(completedAt.getTime() - 2 * 60 * 60 * 1000),
+  });
+
+  const { events, updates } = taskEvents([done], LIST, POPULATED, { now: NOW });
+
+  assert.deepEqual(kinds(events), ['task-added', 'task-finished']);
+  assert.equal(
+    updates[ledgerKey('school-tasks', 'task-1')].addedAt,
+    done.stampAt.toISOString(),
+    'not now'
+  );
+  assert.equal(
+    events.find((e) => e.kind === 'task-finished').at.toISOString(),
+    completedAt.toISOString()
+  );
+});
+
+test('...and when its stamp is its completion, the Added row is swallowed', () => {
+  // Which is the normal case: ticking a task off rewrites DTSTAMP to the
+  // COMPLETED instant, so an old finished task arriving late is one row.
+  const completedAt = ago(60 * 24 * 60 * 60 * 1000);
+
+  const { events } = taskEvents(
+    [todo({ isCompleted: true, completedAt, stampAt: completedAt })],
+    LIST,
+    POPULATED,
+    { now: NOW }
+  );
+
+  assert.deepEqual(kinds(events), ['task-finished']);
+});
+
+test('CREATED beats all of it, in a backfill or not', () => {
+  const createdAt = new Date('2026-06-01T09:00:00Z');
+  for (const ledger of [{}, POPULATED]) {
+    const { events } = taskEvents(
+      [todo({ createdAt, stampAt: ago(90 * 24 * 60 * 60 * 1000) })],
+      LIST,
+      ledger,
+      { now: NOW }
+    );
+    assert.equal(events[0].at.toISOString(), createdAt.toISOString());
+  }
 });
 
 // --- finished --------------------------------------------------------------

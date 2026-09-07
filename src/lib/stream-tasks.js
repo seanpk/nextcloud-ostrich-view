@@ -21,13 +21,26 @@ import { ledgerKey } from '../store/tasks-seen.js';
  * WHERE THE DATES COME FROM. Finished is dated by COMPLETED, which is real
  * data. Added and Changed cannot be: the household's client writes no CREATED
  * and no LAST-MODIFIED, only a DTSTAMP it bumps on every edit. So "Added" means
- * "the first load on which this app ever saw this UID", dated by the task's own
- * stamp (which, for a task nobody has edited, IS when it was written); and
- * "Changed" means "its stamp or its ETag moved since we last looked". Both
- * facts live in the ledger, which is why the events are derived from the
- * ledger rather than emitted once and forgotten: a row that appeared on one
- * load and vanished from the next would be worse than no row -- and with two
- * viewers, whoever refreshed first would be the only one ever told.
+ * "the first load on which this app ever saw this UID"; and "Changed" means
+ * "its stamp or its ETag moved since we last looked". Both facts live in the
+ * ledger, which is why the events are derived from the ledger rather than
+ * emitted once and forgotten: a row that appeared on one load and vanished
+ * from the next would be worse than no row -- and with two viewers, whoever
+ * refreshed first would be the only one ever told.
+ *
+ * ...AND WHICH DATE AN "ADDED" ROW GETS depends on whether this app is meeting
+ * the whole household for the first time or one task that turned up later. On
+ * an empty ledger it is a BACKFILL: every task is dated by its own stamp, and
+ * the page shows the household's real history once. Afterwards, a UID we have
+ * never seen whose stamp is older than FRESH_STAMP_MS did not appear a month
+ * ago -- it appeared to US now, because a list was shared or a task was moved
+ * between lists -- so it is dated now, which puts it at the top of the history
+ * with a New badge instead of months down the page with none. A task that is
+ * already finished is exempt: its news is its Finished row, and "Added today"
+ * would be a plain untruth about something done in July. See `sight`.
+ *
+ * The full rule is in `sight`; it is the one place in this module where our
+ * clock is allowed to date a row, and it is deliberately narrow.
  *
  * CANCELLED TASKS SAY NOTHING. A called-off chore is not finished and is not
  * still to do; the task pages leave it out of both sections (see
@@ -59,6 +72,24 @@ export const CHANGE_TOLERANCE_MS = 60_000;
  * reads to the minute.
  */
 export const SEEN_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How recent a stamp has to be for a task we have never seen to be dated by it
+ * rather than by our clock. See `sight`.
+ *
+ * A DAY, because that is the span over which "its stamp is when it was written"
+ * stays a safe guess. Inside a day, a task's DTSTAMP and its arrival are the
+ * same event as far as any reader is concerned -- she was asleep for most of
+ * it. Beyond a day, the two have come apart for a reason we can actually name:
+ * a list shared long after its tasks were written, a task dragged from one list
+ * to another, a ledger restored from a backup. Dating those by the stamp is
+ * what buries genuinely new work months down the page, unbadged.
+ *
+ * It is not a clock-skew tolerance (that is CHANGE_TOLERANCE_MS) and it is not
+ * a window anything is filtered by: it only ever chooses between two dates for
+ * a row that appears either way.
+ */
+export const FRESH_STAMP_MS = 24 * 60 * 60 * 1000;
 
 /** ISO string, or null for anything that is not a usable date. */
 function iso(value) {
@@ -98,12 +129,64 @@ function listView(list) {
 }
 
 /**
+ * When a task we have never seen before should be said to have been added.
+ *
+ * CREATED always wins: a client that keeps one has answered the question, and
+ * nothing we can infer beats it. Everything below is about the household's own
+ * client, which writes only a DTSTAMP -- a stamp that says when the task was
+ * last WRITTEN, and says nothing at all about when it was shared with us.
+ *
+ * THREE CASES, and the difference between them is what the ledger's own state
+ * tells us about what kind of sighting this is:
+ *
+ *  - BACKFILL -- the ledger is empty, so this app is meeting the whole
+ *    household at once (a first deploy, a wiped data volume, a `state.json`
+ *    directory we could not read). Every task is dated by its own stamp. That
+ *    burst of rows IS the household's history, the stamps in it are real, and
+ *    showing it once is the right thing; dating forty tasks "now" would be a
+ *    page of identical timestamps claiming everything happened this minute.
+ *
+ *  - A FINISHED TASK arriving late -- same rule as backfill. Its news is its
+ *    Finished row, at COMPLETED, where it belongs; and since ticking a task off
+ *    bumps its DTSTAMP to that instant, the 60s dedupe usually swallows the
+ *    Added row entirely. Dating it "now" would say a chore finished in July was
+ *    added today, which is simply false.
+ *
+ *  - ANYTHING ELSE -- an open task turning up in a ledger that already knows
+ *    the household. A stamp inside FRESH_STAMP_MS is kept: the owner wrote it
+ *    this morning and we are seeing it as soon as anybody could. An older stamp
+ *    is NOT when this task appeared to us: a list has just been shared, or a
+ *    task was moved between lists, and the only honest answer to "when did this
+ *    turn up?" is now. That is also the only answer that puts it where she will
+ *    see it -- top of the history, with a New badge -- rather than months down
+ *    the page with none, which is the one event this whole ledger exists to
+ *    catch.
+ *
+ * @param {{createdAt: string|null, stampAt: string|null, isCompleted: boolean}} stamps
+ * @param {{nowIso: string, nowMs: number, backfill: boolean}} context
+ * @returns {string} an ISO stamp; never null, because a row needs a date
+ */
+function addedStamp({ createdAt, stampAt, isCompleted }, { nowIso, nowMs, backfill }) {
+  if (createdAt !== null) return createdAt;
+  if (backfill || isCompleted) return stampAt ?? nowIso;
+
+  const stampMs = msOf(stampAt);
+  const fresh = stampMs !== null && Math.abs(nowMs - stampMs) <= FRESH_STAMP_MS;
+  return fresh ? stampAt : nowIso;
+}
+
+/**
  * One sighting of one task, merged onto what the ledger already knew.
  *
+ * @param {object|null} previous the ledger's entry, or null on a first sighting
+ * @param {object} todo from `fetchTodos`
+ * @param {{nowIso: string, nowMs: number, backfill: boolean}} context
+ *   backfill: the ledger was empty when this load started -- see `addedStamp`.
  * @returns {{entry: object, changed: boolean}} entry: what the ledger should
  *   hold for this task now; changed: whether that differs from what it holds.
  */
-function sight(previous, todo, nowIso, nowMs) {
+function sight(previous, todo, context) {
+  const { nowIso, nowMs } = context;
   const stampAt = iso(todo.stampAt);
   const etag = todo.etag ?? null;
 
@@ -112,11 +195,11 @@ function sight(previous, todo, nowIso, nowMs) {
       changed: true,
       entry: {
         firstSeenAt: nowIso,
-        // The task's own CREATED if its client wrote one; else the stamp it
-        // arrived with, which for a never-edited task IS when it was written.
-        // Only a task carrying neither is dated by our clock, and then "when we
-        // first saw it" is genuinely the only date anybody has.
-        addedAt: iso(todo.createdAt) ?? stampAt ?? nowIso,
+        // Which date, and why, is the whole of `addedStamp`.
+        addedAt: addedStamp(
+          { createdAt: iso(todo.createdAt), stampAt, isCompleted: Boolean(todo.isCompleted) },
+          context
+        ),
         stampAt,
         etag,
         changedAt: null,
@@ -177,9 +260,17 @@ const FIELDS = ['stampAt', 'etag', 'changedAt', 'lastSeenAt'];
  */
 export function taskEvents(todos, list, ledger = {}, options = {}) {
   const { now = new Date() } = options;
-  const nowIso = now.toISOString();
-  const nowMs = now.getTime();
   const view = listView(list);
+  // Read from the WHOLE ledger, not from this list's slice of it: "have we ever
+  // looked at this household's tasks before?" is one question, and a list shared
+  // this morning is not a backfill just because none of its own tasks are known.
+  // A ledger we failed to read looks empty here, which is the right reading of
+  // it: we know nothing, so everything is being met for the first time.
+  const context = {
+    nowIso: now.toISOString(),
+    nowMs: now.getTime(),
+    backfill: Object.keys(ledger ?? {}).length === 0,
+  };
 
   const events = [];
   const updates = Object.create(null);
@@ -192,7 +283,7 @@ export function taskEvents(todos, list, ledger = {}, options = {}) {
     if (todo.isCancelled) continue;
 
     const key = ledgerKey(list.uri, todo.uid);
-    const { entry, changed } = sight(ledger[key] ?? null, todo, nowIso, nowMs);
+    const { entry, changed } = sight(ledger?.[key] ?? null, todo, context);
     if (changed) updates[key] = entry;
 
     const task = { ...view, summary: todo.summary ?? 'Untitled task' };

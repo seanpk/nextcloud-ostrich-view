@@ -68,8 +68,11 @@ which is the only place a task is shown in full.
 
 Rows newer than her *previous* visit carry a **New** badge — nothing is ever
 hidden by a timestamp, so a badge in the wrong place costs her a badge and not
-the list. A task row says **Added**, **Finished** or **Changed**: *changed*
-means the task was edited after it appeared — renamed, re-dated, a note added —
+the list. A task row says **Added**, **Finished** or **Changed**. *Added* means
+the first time this app saw the task: usually that is when it was written, but a
+task list shared today brings its old tasks with it, and those are dated the day
+they reached us rather than buried a year down the page. *Changed* means the
+task was edited after it appeared — renamed, re-dated, a note added —
 and since the app only ever reads, it cannot say what was edited, only that
 something was. **Tasks that are deleted are not shown at all**: a task list
 tells us what exists, never what used to, so a deletion is indistinguishable
