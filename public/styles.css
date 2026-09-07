@@ -985,8 +985,8 @@ a.tile:focus-visible {
 }
 
 /*
- * "Today" with nothing under it. Still a real divider -- it is the line #3
- * puts what is coming above and what happened below, and the target of the
+ * "Today" with nothing under it. Still a real divider -- it is the line with
+ * what is coming above it and what happened below, and the target of the
  * `#today` anchor -- but it must not look like a heading whose list failed to
  * load.
  */
@@ -996,10 +996,10 @@ a.tile:focus-visible {
 }
 
 /*
- * The anchor. `/#today` (and, from #3, the Latest toggle and the login
- * redirect) lands here, and the top bar is fixed, so without this the heading
- * would be scrolled to underneath it. No JavaScript is involved in any of
- * this: the anchor IS the mechanism.
+ * The anchor. `/#today` -- which is where the Latest toggle and the login
+ * redirect both point -- lands here, and the top bar is fixed, so without this
+ * the heading would be scrolled to underneath it. No JavaScript is involved in
+ * any of this: the anchor IS the mechanism.
  */
 #today {
   scroll-margin-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 0.75rem);

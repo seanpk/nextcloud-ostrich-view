@@ -108,7 +108,7 @@ export function formatVisitLabel(value, options = {}) {
  * `at` is the file's modification time and is what the whole page is ordered
  * and grouped by, so an entry without one is dropped rather than guessed at.
  * (search.js drops those already; this is the second lock on the same door,
- * because #3 will feed events in from a second source.)
+ * because the task events beside these come in from a second source.)
  *
  * @param {Array<object>} entries parseMultistatus-shaped
  * @returns {Array<{kind: 'file', at: Date, tile: object, folderLabel: string}>}
@@ -147,9 +147,9 @@ function dayLabel(date, now) {
  *
  * `days` ALWAYS contains a group for today, with an empty `items` when nothing
  * happened today -- the template renders that as a bare "Today" divider, which
- * is what makes `/#today` mean something on a quiet day and what #3 builds
- * upwards from. It sits below any group dated in the future (a clock that
- * jumped, or -- from #3 -- a task due later) and above every past group.
+ * is what makes `/#today` mean something on a quiet day and what
+ * `buildTimeline` stacks what is coming on top of. It sits below any group
+ * dated in the future (a clock that jumped) and above every past group.
  *
  * `isNew` is `at > previousVisitAt`, and always false when there is no previous
  * sitting: a first-ever visit gets the list (which is the point of the page)
@@ -333,9 +333,9 @@ function visitMs(value) {
  * forever, but the ANSWER is only stable for as long as nobody uploads
  * anything, and those are not the same span at all. See STREAM_CACHE_TTL_MS.
  *
- * Keys are the caller's business (the stream uses one constant; #3 will want a
- * second for the task half). Failures are never stored: the caller only calls
- * `set` once it has an answer worth keeping.
+ * Keys are the caller's business (the stream uses two constants: the files it
+ * found, and which task lists are shared). Failures are never stored: the
+ * caller only calls `set` once it has an answer worth keeping.
  *
  * @param {{max?: number, ttlMs?: number, now?: () => number}} [options]
  *   now: clock, injectable so expiry can be tested without waiting a minute.

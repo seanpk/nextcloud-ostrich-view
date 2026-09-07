@@ -67,7 +67,7 @@ test('demo: the printed passphrase logs in, and the demo folders are there', asy
 
   // The stream lands first, spanning several days of the dataset's stamps.
   assert.match(streamBody, /pond water sample\.jpg/, 'a recently-stamped file from the dataset');
-  assert.match(streamBody, /id="today"/, 'the Today line #3 builds on');
+  assert.match(streamBody, /id="today"/, 'the Today line the page is built around');
   assert.match(streamBody, /Yesterday/, 'the offsets really do span more than one day');
 
   // The seeded "last visit" is what puts badges on the page on the very first

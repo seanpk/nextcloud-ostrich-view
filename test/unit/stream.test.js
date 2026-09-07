@@ -135,7 +135,7 @@ test('buildStream: a year-old day is named with its year, or it is a riddle', ()
 
 test('buildStream: there is always a Today group, empty when nothing happened today', () => {
   // The #today anchor has to exist on a quiet day too -- it is what /#today
-  // means, and what #3 builds upwards from.
+  // means, and what the block of what-is-coming stacks on top of.
   const { days } = buildStream([event('2026-08-08T21:00:00')], { now: NOW });
 
   assert.deepEqual(
@@ -169,7 +169,8 @@ test('buildStream: exactly one group is ever marked today', () => {
 });
 
 test('buildStream: a stamp in the future sits above the Today line, not inside it', () => {
-  // A clock that jumped, or (from #3) a task due later. Either way "Tomorrow"
+  // A clock that jumped: a file cannot really be modified tomorrow. Either
+  // way, "Tomorrow"
   // is not today, and the Today divider belongs underneath it.
   const { days } = buildStream(
     [event('2026-08-10T09:00:00'), event('2026-08-08T09:00:00')],
