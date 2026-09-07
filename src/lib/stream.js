@@ -156,8 +156,10 @@ function dayLabel(date, now) {
  * but no badges, because "everything the owner has ever shared" is not news.
  *
  * `moreLabel` is careful about what it claims. Two things make the true total
- * unknowable: we only ever fetched `fetchLimit` results, so once that many came
- * back there may be more behind them; and a fallback walk that hit its bounds
+ * unknowable: once `fetchLimit` events came back there may be more behind them
+ * -- the file search fetched at most that many, and the page shows at most that
+ * many of the file rows and task rows combined, so either bound firing means
+ * something older was left off; and a fallback walk that hit its bounds
  * (`truncated`) never saw whole subtrees. Either way the line goes vague rather
  * than implying the list is complete.
  *
@@ -236,7 +238,14 @@ export function buildStream(events, options = {}) {
  * and this names it. Formatting that number back in UTC is what keeps "Sep 9"
  * from becoming "Sep 8" west of Greenwich.
  *
- * Two labels deliberately differ from the history's vocabulary:
+ * EVERY LABEL HERE SAYS "DUE", and the history's labels never do. That is what
+ * keeps the two halves apart for a reader who cannot see the page: someone
+ * moving heading to heading with a screen reader hears "Due Sat, Sep 12",
+ * "Due tomorrow", "Overdue", then "Today", "Yesterday", "Fri, Aug 8" -- each
+ * one saying which side of the line it is on, without a "what is coming"
+ * heading having to be announced first.
+ *
+ * Two labels differ from the history's vocabulary for a second reason too:
  *  - today's group says "Due today", not "Today" -- there is already a Today
  *    line on this page, it is the divider below, and two headings reading
  *    "Today" would make the axis unreadable (and `#today` ambiguous);
@@ -247,10 +256,10 @@ function dueDayLabel(civilMs, now) {
   const delta = Math.round((civilMs - civilDay(now, false)) / MS_PER_DAY);
   if (delta < 0) return 'Overdue';
   if (delta === 0) return 'Due today';
-  if (delta === 1) return 'Tomorrow';
+  if (delta === 1) return 'Due tomorrow';
 
   const day = new Date(civilMs);
-  return formatDay(day, { utc: true, withYear: day.getUTCFullYear() !== now.getFullYear() });
+  return `Due ${formatDay(day, { utc: true, withYear: day.getUTCFullYear() !== now.getFullYear() })}`;
 }
 
 /**

@@ -135,21 +135,31 @@ function sight(previous, todo, nowIso, nowMs) {
   const lastSeenMs = msOf(previous.lastSeenAt);
   const seenStale = lastSeenMs === null || nowMs - lastSeenMs >= SEEN_REFRESH_MS;
 
+  const entry = {
+    ...previous,
+    stampAt: stampAt ?? previous.stampAt,
+    etag: etag ?? previous.etag,
+    // Dated by the task's new stamp when there is one. An ETag that moved while
+    // the stamp stood still (a client that edits without touching DTSTAMP) can
+    // only be dated by when we noticed -- our clock, which is second best, and
+    // better than silence about an edit we can see happened.
+    changedAt: moved ? (stampMoved ? stampAt : nowIso) : previous.changedAt,
+    lastSeenAt: seenStale ? nowIso : previous.lastSeenAt,
+  };
+
   return {
-    changed: moved || seenStale || previous.stampAt !== stampAt || previous.etag !== etag,
-    entry: {
-      ...previous,
-      stampAt: stampAt ?? previous.stampAt,
-      etag: etag ?? previous.etag,
-      // Dated by the task's new stamp when there is one. An ETag that moved
-      // while the stamp stood still (a client that edits without touching
-      // DTSTAMP) can only be dated by when we noticed -- our clock, which is
-      // second best, and better than silence about an edit we can see happened.
-      changedAt: moved ? (stampMoved ? stampAt : nowIso) : previous.changedAt,
-      lastSeenAt: seenStale ? nowIso : previous.lastSeenAt,
-    },
+    // Whether the LEDGER changes, not whether the incoming values differ: a
+    // server that has stopped reporting `getetag`, or a blob that has lost its
+    // DTSTAMP, differs from what we stored and yet leaves the entry exactly as
+    // it was -- and answering "changed" to that would rewrite the whole ledger
+    // on every page load, forever, for nothing.
+    changed: FIELDS.some((field) => entry[field] !== previous[field]),
+    entry,
   };
 }
+
+/** The fields a sighting can move. Compared to decide whether to write. */
+const FIELDS = ['stampAt', 'etag', 'changedAt', 'lastSeenAt'];
 
 /**
  * What has happened to the tasks in one list, and what the ledger should

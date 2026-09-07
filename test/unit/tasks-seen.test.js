@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -164,24 +164,29 @@ test('a hand-edited or half-written file starts fresh instead of throwing', asyn
 
 test('nonsense inside the file is dropped entry by entry', async () => {
   const dir = tempDir();
+  // Written as raw JSON, not via an object literal: `{ __proto__: … }` invokes
+  // the prototype SETTER, so JSON.stringify would emit no such key at all and
+  // this test would pass without ever exercising the case it is named for.
+  // JSON.parse, by contrast, really does produce an own `__proto__` property.
   writeFileSync(
     join(dir, TASKS_SEEN_FILE_NAME),
-    JSON.stringify({
-      'chores|good': entry(),
-      'chores|not-an-object': 'nope',
-      'chores|no-stamps': { etag: 'x' },
-      'chores|bad-stamp': { addedAt: 'last Tuesday' },
-      __proto__: entry(),
-    })
+    `{
+      "chores|good": ${JSON.stringify(entry())},
+      "chores|not-an-object": "nope",
+      "chores|no-stamps": { "etag": "x" },
+      "chores|bad-stamp": { "addedAt": "last Tuesday" },
+      "__proto__": { "addedAt": "2026-09-01T08:00:00.000Z", "polluted": true }
+    }`
   );
   const store = createTasksSeenStore({ dir, now: () => T0 });
 
   const ledger = await store.read();
-  assert.deepEqual(Object.keys(ledger), ['chores|good']);
+  assert.deepEqual(Object.keys(ledger), ['chores|good', '__proto__']);
   // The file is ours, but it is still parsed input: a `__proto__` key in it is
   // an odd task key and nothing more.
   assert.equal(Object.getPrototypeOf(ledger), null);
-  assert.equal(({}).addedAt, undefined);
+  assert.equal({}.polluted, undefined, 'nothing reached Object.prototype');
+  assert.equal(ledger.__proto__.addedAt, '2026-09-01T08:00:00.000Z');
 });
 
 test('an entry that lost its addedAt falls back to when we first saw the task', async () => {
@@ -218,12 +223,17 @@ test('a directory where the file should be costs Added rows, not the page', asyn
   );
 });
 
-test('the file is written for the owner only', async () => {
+test('the file is written for the owner only, and ends with a newline', async () => {
   const dir = tempDir();
   const store = createTasksSeenStore({ dir, now: () => T0 });
   await store.save({ 'chores|a': entry() });
 
-  const raw = readFileSync(join(dir, TASKS_SEEN_FILE_NAME), 'utf8');
+  const path = join(dir, TASKS_SEEN_FILE_NAME);
+  // 0600, like state.json: it says which tasks a household has, which is
+  // nobody else's business on a shared machine.
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+
+  const raw = readFileSync(path, 'utf8');
   assert.match(raw, /"chores\|a"/);
   assert.match(raw, /\n$/, 'ends with a newline, like every other file we write');
 });

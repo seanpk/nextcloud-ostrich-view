@@ -33,10 +33,13 @@ import { join } from 'node:path';
  * no schema and no migration story.
  *
  * DURABILITY AND CONCURRENCY are handled exactly as in ./visits.js: temp file
- * plus rename, so a reader never sees half a write, and every read-modify-write
- * runs through one chain, because each write rewrites the WHOLE file and two
- * interleaved ones would silently drop each other's tasks. A write that fails
- * is logged once and swallowed -- see above for what it costs.
+ * plus rename, so a reader never sees half a write, and `save` re-reads inside
+ * one serialized chain, because each write rewrites the WHOLE file and two
+ * interleaved ones would silently drop each other's tasks. (The bare `read`
+ * this module also exports does not queue behind that chain -- it is what the
+ * route and the tests use to LOOK at the ledger, and rename makes any single
+ * read a whole file or the previous whole file.) A write that fails is logged
+ * once and swallowed -- see above for what it costs.
  */
 
 /** How long an entry survives after the last time we saw its task. */
@@ -149,8 +152,8 @@ export function createTasksSeenStore({
 
   const filePath = join(dir, TASKS_SEEN_FILE_NAME);
 
-  // One chain for reads and writes both -- see the note at the top of the file,
-  // and the longer version of the same argument in ./visits.js.
+  // Every read-modify-write goes through one chain -- see the note at the top of
+  // the file, and the longer version of the same argument in ./visits.js.
   let chain = Promise.resolve();
 
   /** Run `task` after everything already queued, whether or not that failed. */
@@ -217,10 +220,18 @@ export function createTasksSeenStore({
    * turn into a page of "Added" rows.
    */
   function prune(ledger, nowMs) {
+    const nowIso = new Date(nowMs).toISOString();
     for (const [key, entry] of Object.entries(ledger)) {
       const seen = entry.lastSeenAt ?? entry.firstSeenAt;
       const seenMs = seen === null ? null : Date.parse(seen);
-      if (seenMs !== null && nowMs - seenMs <= pruneAfterMs) continue;
+      if (seenMs === null) {
+        // We cannot date this one, so we cannot say it has been gone for a
+        // season -- and dropping it would announce its task as Added all over
+        // again. Start its clock now instead.
+        entry.lastSeenAt = nowIso;
+        continue;
+      }
+      if (nowMs - seenMs <= pruneAfterMs) continue;
       delete ledger[key];
     }
     return ledger;

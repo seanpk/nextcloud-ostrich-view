@@ -345,9 +345,11 @@ test('buildTimeline: what is coming is grouped by day, furthest away first', () 
     now: NOW,
   });
 
+  // Every heading here says "Due", and none of the history's do: that is what
+  // tells a reader moving heading to heading which side of the line they are on.
   assert.deepEqual(
     future.map((group) => group.label),
-    ['Sat, Aug 15', 'Tomorrow', 'Due today']
+    ['Due Sat, Aug 15', 'Due tomorrow', 'Due today']
   );
   // Two tasks due the same day share one heading.
   assert.deepEqual(
@@ -374,7 +376,7 @@ test('buildTimeline: everything late shares one Overdue group, right above the l
 
   assert.deepEqual(
     future.map((group) => group.label),
-    ['Tomorrow', 'Overdue']
+    ['Due tomorrow', 'Overdue']
   );
   assert.equal(future.at(-1).isOverdue, true);
   assert.deepEqual(
@@ -391,7 +393,7 @@ test('buildTimeline: a due date next year is named with its year', () => {
     now: NOW,
   });
 
-  assert.equal(future[0].label, 'Wed, Jan 20, 2027');
+  assert.equal(future[0].label, 'Due Wed, Jan 20, 2027');
 });
 
 test('buildTimeline: with nothing coming up, there is no block above the line', () => {

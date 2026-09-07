@@ -100,7 +100,7 @@
           <span class="stream__what">{{ item.label if item.label else item.dueLabel }}</span>
           {# `stream__list-name`, not `stream__list`: that one is the <ul> of rows,
              and a span wearing it inherits `display: grid`. #}
-          <span class="stream__list-name {{ item.task.accentClass }}">{{ item.task.name }}</span>
+          <span class="stream__list-name{{ ' ' + item.task.accentClass if item.task.accentClass }}">{{ item.task.name }}</span>
         </span>
       </span>
 
@@ -158,7 +158,7 @@
   sits directly against the Today line.
 #}
 {% macro due_group(group) %}
-  <h2 class="stream__day stream__day--due {{ 'stream__day--overdue' if group.isOverdue }}">{{ group.label }}</h2>
+  <h2 class="stream__day stream__day--due{{ ' stream__day--overdue' if group.isOverdue }}">{{ group.label }}</h2>
 
   <ul class="stream__list">
     {% for item in group.items %}

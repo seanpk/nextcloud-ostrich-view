@@ -349,12 +349,10 @@ test.describe('Arriving on Today', () => {
     expect(first, 'the future block sits above the line she landed on').toBeLessThan(line);
 
     // And the fixed bar is not sitting on top of the line (scroll-margin-top).
-    const clear = await page.evaluate(() => {
-      const heading = document.querySelector('#today');
-      const bar = document.querySelector('.topbar');
-      return heading.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
-    });
-    expect(clear).toBeGreaterThanOrEqual(0);
+    // Measured with boundingBox rather than page.evaluate: running script in
+    // the page would be an odd way to test the page that has none.
+    const bar = await page.locator('.topbar').boundingBox();
+    expect(line).toBeGreaterThanOrEqual(bar.y + bar.height);
   });
 });
 

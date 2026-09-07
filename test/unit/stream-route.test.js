@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,6 +50,13 @@ const cleanups = [];
 after(async () => {
   for (const cleanup of cleanups.reverse()) await cleanup();
 });
+
+// The todo cache in ../../src/nextcloud/caldav.js is module-level, so it
+// outlives an app. Its key carries the base URL and every mock here listens on
+// an ephemeral port, which keeps these tests apart by luck rather than by
+// design -- and the REPORT-counting assertions below are exactly what that luck
+// would break.
+beforeEach(() => clearTaskCache());
 
 function dataDir() {
   const dir = mkdtempSync(join(tmpdir(), 'ostrich-stream-'));

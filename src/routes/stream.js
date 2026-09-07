@@ -148,7 +148,17 @@ export default async function registerStreamRoutes(app) {
     return found;
   }
 
-  /** Which task lists are shared, from Nextcloud or from the last minute's answer. */
+  /**
+   * Which task lists are shared, from Nextcloud or from the last minute's answer.
+   *
+   * The ctags come with them, which is the whole trade: a remembered ctag means
+   * `fetchTodos` sees no reason to re-REPORT, so for up to a minute this page
+   * can be a minute behind the tasks. `/tasks/<slug>` does its own PROPFIND and
+   * so is never behind -- which means opening a task list can leave the stream
+   * showing an older state than the page she just came from, for less than a
+   * minute. Worth it: this is the page she pulls to refresh, and the
+   * alternative is a PROPFIND per pull.
+   */
   async function loadCalendars() {
     const remembered = streamCache.get(CALENDARS_KEY);
     if (remembered) return remembered;
