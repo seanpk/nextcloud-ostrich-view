@@ -9,6 +9,7 @@ import { buildApp } from '../../src/server.js';
 import { loadConfig } from '../../src/config.js';
 import { createMockNextcloud, TEST_APP_PASSWORD, TEST_USER } from '../mock-nextcloud/index.js';
 import { SHARE_OWNER } from '../mock-nextcloud/tree.js';
+import { MAX_DOCX_BYTES } from '../../src/lib/office.js';
 import {
   contentDisposition,
   createStatCache,
@@ -458,6 +459,41 @@ test('/view: a document that will not convert is a calm page, never a 500', asyn
   assert.match(response.body, /viewer--plain/);
   assert.match(response.body, /We can’t show this one on screen/);
   assert.match(response.body, new RegExp('href="/download/Broken/not%20really.docx"'));
+  assert.ok(!response.body.includes('<article class="document">'));
+});
+
+test('/view: a document whose stat lies about its size is capped mid-stream', async () => {
+  // `oc:size` is a claim about a different moment than the read, so it cannot
+  // be the only ceiling: here the stat says 4 KB (comfortably under the
+  // conversion limit) and the body is over it. The read has to give up while
+  // the bytes are still arriving rather than buffer the lot and then measure.
+  const { get } = await boot({
+    tree: {
+      Sneaky: {
+        type: 'folder',
+        sharedBy: SHARE_OWNER,
+        children: {
+          'huge.docx': {
+            type: 'file',
+            contentType: DOCX_TYPE,
+            // Real bytes past the 15 MB conversion ceiling...
+            bytes: Buffer.alloc(MAX_DOCX_BYTES + 4096, 0x50),
+            // ...and a PROPFIND that says otherwise, so the cheap pre-check
+            // upstream of the read waves it through.
+            size: 4096,
+          },
+        },
+      },
+    },
+  });
+
+  const response = await get('/view/Sneaky/huge.docx');
+
+  assert.equal(response.statusCode, 200, 'an oversized document is not an outage');
+  assert.match(response.body, /viewer--plain/);
+  assert.match(response.body, /We can’t show this one on screen/);
+  // It is still an office file, so the original is still offered.
+  assert.match(response.body, new RegExp('href="/download/Sneaky/huge.docx"'));
   assert.ok(!response.body.includes('<article class="document">'));
 });
 

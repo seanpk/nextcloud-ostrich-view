@@ -15,6 +15,7 @@ import {
 import { MAX_DOCX_BYTES, createDocumentCache, renderDocx } from '../lib/office.js';
 import { encodePath, normalizeRelPath, parentPath } from '../lib/paths.js';
 import { ICONS } from '../lib/tiles.js';
+import { readCapped } from '../nextcloud/previews.js';
 
 /**
  * The four routes that put a file in front of the viewer:
@@ -268,9 +269,14 @@ async function proxyFile(app, reply, path, options) {
  * app that has to see all the bytes at once rather than stream them.
  *
  * `oc:size` has already been checked against the same ceiling before we get
- * here; this checks the bytes that actually arrived, because the stat and the
- * download are two different moments and only one of them is authoritative
- * about how big the file is.
+ * here, and that check is worth keeping (it saves the transfer entirely), but
+ * it cannot be the only one: the stat and the read are two different moments,
+ * and only the bytes that actually arrive are authoritative about how big the
+ * file is. So the body is read *capped* rather than buffered and then
+ * measured -- `readCapped` cancels the stream the moment it passes the limit,
+ * which propagates upstream, so an oversized file costs a few chunks instead
+ * of its whole self. Buffering an unbounded body to find out it was too big
+ * is the failure mode the ceiling exists to prevent.
  *
  * @param {import('fastify').FastifyInstance} app
  * @param {string} path
@@ -291,9 +297,9 @@ async function readWholeFile(app, path, { maxBytes }) {
     });
   }
 
-  const bytes = Buffer.from(await upstream.arrayBuffer());
-  if (bytes.length > maxBytes) {
-    throw new NextcloudError(`${path} is ${bytes.length} bytes, over the conversion ceiling.`, {
+  const bytes = await readCapped(upstream, maxBytes);
+  if (bytes === null) {
+    throw new NextcloudError(`${path} is over ${maxBytes} bytes; not converting it.`, {
       status: 413,
     });
   }
