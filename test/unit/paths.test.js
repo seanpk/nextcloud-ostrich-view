@@ -141,11 +141,14 @@ test('joinPath appends a child and rejects a malicious "name"', () => {
   assert.throws(() => joinPath('Biology 101', '../../etc'), InvalidPathError);
 });
 
-test('breadcrumbs start at Home and encode each href', () => {
-  assert.deepEqual(breadcrumbs(''), [{ name: 'Home', path: '', href: '/' }]);
+test('breadcrumbs start at Files and encode each href', () => {
+  // The root crumb names where the folder actually sits. `/` is the stream now,
+  // so a crumb reading "Home" and leading to a list of recent changes would be
+  // a trail that lies about its own root.
+  assert.deepEqual(breadcrumbs(''), [{ name: 'Files', path: '', href: '/files' }]);
 
   assert.deepEqual(breadcrumbs('Biology 101/Lectures'), [
-    { name: 'Home', path: '', href: '/' },
+    { name: 'Files', path: '', href: '/files' },
     { name: 'Biology 101', path: 'Biology 101', href: '/files/Biology%20101' },
     {
       name: 'Lectures',

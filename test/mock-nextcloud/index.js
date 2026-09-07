@@ -34,9 +34,11 @@ import { CALENDAR_FIXTURES, handleCalendarRequest } from './calendars.js';
  *
  * M4 added the third verb: `SEARCH` on `/remote.php/dav/`, parsing just enough
  * of the `d:basicsearch` body to honour the scope, the `getlastmodified`
- * comparison and the result limit. `createMockNextcloud({ searchStatus: 405 })`
- * turns it into a server that refuses SEARCH, which is how the walk fallback
- * gets tested against something that behaves like a real refusal.
+ * comparison and the result limit -- and, since the stream landed, a body with
+ * no `<d:where>` at all, which asks for the newest `nresults` files whatever
+ * their date. `createMockNextcloud({ searchStatus: 405 })` turns it into a
+ * server that refuses SEARCH, which is how the walk fallback gets tested
+ * against something that behaves like a real refusal.
  *
  * EXTENSION POINTS
  *  - M3 (done): `/remote.php/dav/calendars/<user>/` PROPFIND and `REPORT` live
@@ -379,22 +381,29 @@ export function createMockNextcloud(options = {}) {
       return;
     }
 
-    const literal = /<[^:>]*:?literal>([^<]*)</.exec(body)?.[1] ?? '';
-    // Nextcloud parses this with DateTime::createFromFormat(ATOM, …) and treats
-    // anything else as timestamp 0 -- i.e. "match everything". Being strict here
-    // is the only way a wrongly-formatted literal shows up as a test failure
-    // instead of a suspiciously generous result set.
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(literal)) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
-      res.end(`Unparseable date literal: ${literal}`);
-      return;
+    // No <d:where> at all is a legal basicsearch and means "no lower bound":
+    // the newest `nresults` files, whenever they changed. That is what the
+    // stream asks for. The strictness below still applies whenever a `where`
+    // IS present -- a malformed date literal must fail loudly rather than
+    // quietly matching everything, which is what a real Nextcloud does with
+    // one (it parses with DateTime::createFromFormat(ATOM, …) and falls back
+    // to timestamp 0).
+    const hasWhere = /<[^:>]*:?where>/.test(body);
+    let sinceMs = null;
+    if (hasWhere) {
+      const literal = /<[^:>]*:?literal>([^<]*)</.exec(body)?.[1] ?? '';
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(literal)) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end(`Unparseable date literal: ${literal}`);
+        return;
+      }
+      sinceMs = Date.parse(literal);
     }
 
-    const sinceMs = Date.parse(literal);
     const limit = Number(/<[^:>]*:?nresults>(\d+)</.exec(body)?.[1] ?? '50');
 
     const matches = walkFiles(tree)
-      .filter(({ node }) => Date.parse(lastModifiedOf(node)) > sinceMs)
+      .filter(({ node }) => sinceMs === null || Date.parse(lastModifiedOf(node)) > sinceMs)
       .sort((a, b) => Date.parse(lastModifiedOf(b.node)) - Date.parse(lastModifiedOf(a.node)))
       .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 50);
 

@@ -2,7 +2,7 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createClient } from '../../src/nextcloud/client.js';
-import { findChangedSince } from '../../src/nextcloud/search.js';
+import { findChangedSince, findRecent } from '../../src/nextcloud/search.js';
 import {
   createMockNextcloud,
   TEST_APP_PASSWORD,
@@ -79,6 +79,53 @@ test('against a SEARCH-capable server: a visit after everything finds nothing', 
   assert.equal(strategy, 'search');
   assert.equal(memo.get(client.baseUrl), 'search');
   assert.deepEqual(mock.requests.map((r) => r.method), ['SEARCH']);
+});
+
+test('findRecent against a SEARCH-capable server: the newest files, no date sent', async () => {
+  // The stream's request: one SEARCH with no <d:where> at all. The mock is
+  // strict about a malformed date literal, so this passing is also proof the
+  // app sent no literal rather than a bad one.
+  const { mock, client } = await boot();
+
+  const { entries, strategy, truncated } = await findRecent(client, { memo: new Map() });
+
+  assert.equal(strategy, 'search');
+  assert.equal(truncated, false);
+  assert.deepEqual(mock.requests.map((r) => r.method), ['SEARCH']);
+
+  const paths = entries.map((e) => e.path);
+  assert.deepEqual(paths.slice(0, 2), EXPECTED, 'the two recent files still lead');
+  assert.ok(paths.includes('Biology 101/Lectures/Week 1 Notes.pdf'), 'and the older ones follow');
+  assert.ok(
+    !paths.some((path) => path.startsWith('Photos/')),
+    "the account's own skeleton content is filtered by ownership, not by date"
+  );
+});
+
+test('findRecent against a server that refuses SEARCH: the walk answers the same way', async () => {
+  const { mock, client } = await boot({ searchStatus: 405 });
+
+  const { entries, strategy } = await findRecent(client, { memo: new Map() });
+
+  assert.equal(strategy, 'walk');
+  assert.deepEqual(entries.map((e) => e.path).slice(0, 2), EXPECTED);
+  assert.ok(entries.length > EXPECTED.length, 'a walk with no lower bound keeps the old files too');
+  assert.equal(mock.requests[0].method, 'SEARCH', 'SEARCH is tried once before giving up on it');
+});
+
+test('with no date given, the limit is what bounds the answer -- server-side', async () => {
+  // There is no <d:where> to bound an unfiltered search, so `nresults` is the
+  // only thing standing between the stream and the whole tree. The mock honours
+  // it the way Nextcloud does: it slices the newest `limit` and hands those
+  // over, and the share filter runs afterwards -- so asking for 3 can legitimately
+  // yield 2 when one of the newest is the account's own skeleton content
+  // (Photos/Frog.jpg is stamped recent for exactly this reason).
+  const { client } = await boot();
+
+  const { entries } = await findRecent(client, { memo: new Map(), limit: 3 });
+
+  assert.ok(entries.length <= 3, 'never more than we asked for');
+  assert.deepEqual(entries.map((e) => e.path), EXPECTED);
 });
 
 test('against a server that refuses SEARCH: the walk finds the same files', async () => {

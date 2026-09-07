@@ -14,8 +14,8 @@
   <body class="{{ 'is-viewer' if immersive }}">
     {#
       The top bar is fixed so the Back button is reachable from anywhere on the
-      page without scrolling. It is hidden only on home and login, where there
-      is nowhere to go back to.
+      page without scrolling. It is hidden only on the stream and on login,
+      where there is nowhere to go back to.
     #}
     <header class="topbar">
       <div class="topbar__inner">
@@ -32,12 +32,19 @@
 
         {#
           Every page inside the app sets showToggle=true and
-          section='files'|'tasks': switching sections must never require backing
-          out to the home screen first. Login is the one page without it.
+          section='latest'|'files'|'tasks': switching sections must never require
+          backing out to the top first. Login is the one page without it.
+
+          Three options and a Back button is all a 360px phone will hold, so the
+          option padding and type size are fluid (see .toggle__option in
+          styles.css) and the brand text steps aside wherever the toggle shows.
+          ux.spec.js asserts both the 44px floor and the no-sideways-scroll rule
+          on every page, which is what keeps that honest.
         #}
         {% if showToggle %}
           <nav class="toggle" aria-label="Sections">
-            <a class="toggle__option {{ 'is-current' if section == 'files' }}" href="/">Files</a>
+            <a class="toggle__option {{ 'is-current' if section == 'latest' }}" href="/">Latest</a>
+            <a class="toggle__option {{ 'is-current' if section == 'files' }}" href="/files">Files</a>
             <a class="toggle__option {{ 'is-current' if section == 'tasks' }}" href="/tasks">Tasks</a>
           </nav>
         {% endif %}

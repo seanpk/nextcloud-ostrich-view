@@ -29,13 +29,13 @@ import { loadDataset } from '../test/mock-nextcloud/dataset.js';
  * that wrote into ./data or config/ could quietly break a real deployment
  * sharing the checkout.
  *
- * THE PRETENDED LAST VISIT. "New since you last looked" compares against the
- * viewer's PREVIOUS sitting, so a brand-new viewer sees no such section at all
- * (see src/store/visits.js -- that is deliberate, not a bug). A demo whose
- * headline feature is invisible is not much of a demo, so state.json is seeded
- * with a sitting two days ago: the first page load rotates it into `previous`,
- * and the dataset's two recently-touched files land above the folders. It is
- * the same code path a returning viewer takes, with the clock pre-wound.
+ * THE PRETENDED LAST VISIT. The stream's New badges compare against the
+ * viewer's PREVIOUS sitting, so a brand-new viewer sees the list with nothing
+ * marked on it (see src/store/visits.js -- that is deliberate, not a bug). The
+ * badges are half of what the page is for, so state.json is seeded with a
+ * sitting two days ago: the first page load rotates it into `previous`, and the
+ * dataset's recently-touched files come up badged. It is the same code path a
+ * returning viewer takes, with the clock pre-wound.
  */
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -188,8 +188,8 @@ function banner(demo, datasetPath) {
     `  ${datasetPath}`,
     '  Edit that file and restart to change what you see.',
     '',
-    '  The demo pretends you last looked two days ago, so the home page opens',
-    '  with "New since you last looked" already filled in.',
+    '  The demo pretends you last looked two days ago, so the Latest page opens',
+    '  with the last two days of changes marked New.',
     '',
     '  Nothing is written to ./data or config/viewers.json — this run keeps its',
     `  state in ${demo.dataDir}, and deletes it on the way out.`,

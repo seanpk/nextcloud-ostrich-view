@@ -1,0 +1,61 @@
+{% extends "layout.njk" %}
+{% import "_stream.njk" as s %}
+
+{#
+  Latest -- the page she lands on.
+
+  One time axis, newest first: `days` is a list of day groups, each with a
+  heading and its rows, and the group for today always exists (empty on a quiet
+  day) so that `#today` is a real place on the page. #3 adds groups ABOVE that
+  line for tasks that are coming up; nothing here has to move for it to.
+#}
+
+{% block heading %}
+  {% if viewer %}Hello, {{ viewer.label }}{% else %}Latest{% endif %}
+{% endblock %}
+
+{% block content %}
+  {#
+    When she was last here, and what the badges mean -- in that order, because
+    the second only makes sense once she knows there was a "last time". Absent
+    on a first-ever visit: nothing is badged then, and there is no previous
+    sitting to name.
+  #}
+  {% if lastVisitedAt %}
+    <p class="section__note">
+      You were last here {{ lastVisitedAt }}.{% if newCount %} Newer things are marked New.{% endif %}
+    </p>
+  {% endif %}
+
+  <section class="stream" aria-labelledby="stream-heading">
+    <h2 class="section__title visually-hidden" id="stream-heading">What has changed</h2>
+
+    {% for day in days %}
+      {{ s.day_group(day) }}
+    {% endfor %}
+
+    {#
+      Only shown when there is genuinely nothing: the day groups above always
+      include today, so this sits under a bare "Today" heading. A claim we can
+      finally make honestly -- it is no longer the same rendering as "the lookup
+      failed", because a failed lookup now reaches the error pages instead.
+
+      `moreLabel` is the one thing that takes it back off the page: a walk that
+      gave up at its bounds and found nothing cannot say nothing has changed,
+      only that it did not look everywhere. That case shows the line below and
+      this one not at all.
+    #}
+    {% if total == 0 and not moreLabel %}
+      <p class="empty">Nothing has changed yet.</p>
+    {% endif %}
+
+    {#
+      The page is a window on the history, not the whole of it. Said whenever
+      the fetch came back full or the fallback walk gave up early -- see
+      `moreLabel` in src/lib/stream.js.
+    #}
+    {% if moreLabel %}
+      <p class="section__more">{{ moreLabel }}</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,77 @@
+{#
+  One row of the stream.
+
+  A row, not a tile. The folder pages are for looking THROUGH a folder, so a
+  tile there is a big card with a preview band; the stream is for reading DOWN
+  a list of what happened, so a row is one line high with a small thumbnail
+  beside it and the time on the right. Twenty cards would be a page you scroll
+  past; twenty rows are a page you read.
+
+  Every row is an <a> when the file can be opened (`tile.href`, decided by the
+  same `toTile` a folder listing uses) and a plain <div> when it cannot -- the
+  same "this is here, but there is nothing to tap" language as a static tile.
+
+  Macros are defined before they are used, the way _tiles.njk and _task.njk do
+  it. #3 adds a `task_item` macro alongside `file_row`, for the task-change
+  rows that interleave with these by time.
+#}
+
+{% macro row_body(item) %}
+  <span class="stream__thumb">
+    {% if item.tile.previewUrl %}
+      <img class="stream__preview" src="{{ item.tile.previewUrl }}" alt="Preview of {{ item.tile.name }}" loading="lazy" />
+    {% else %}
+      <img class="stream__icon" src="{{ item.tile.icon }}" alt="" aria-hidden="true" />
+    {% endif %}
+  </span>
+
+  <span class="stream__text">
+    <span class="stream__name">{{ item.tile.name }}</span>
+    {# Where it lives, since a row is shown out of its folder. #}
+    <span class="stream__where">in {{ item.folderLabel }}</span>
+  </span>
+
+  <span class="stream__aside">
+    {% if item.isNew %}
+      {# A word, not a colour: the tint behind the row is decoration, this is the
+         thing a screen reader and a colour-blind reader both get. #}
+      <span class="stream__badge">New</span>
+    {% endif %}
+    <span class="stream__time">{{ item.timeLabel }}</span>
+  </span>
+{% endmacro %}
+
+{% macro file_row(item) %}
+  <li class="stream__item {{ 'stream__item--new' if item.isNew }}">
+    {% if item.tile.href %}
+      <a class="stream__row stream__row--{{ item.tile.kind }}" href="{{ item.tile.href }}">
+        {{ row_body(item) }}
+      </a>
+    {% else %}
+      <div class="stream__row stream__row--{{ item.tile.kind }} stream__row--static">
+        {{ row_body(item) }}
+      </div>
+    {% endif %}
+  </li>
+{% endmacro %}
+
+{#
+  One day's heading plus its rows. The Today group always exists (see
+  buildStream in src/lib/stream.js) and carries the `#today` anchor, so /#today
+  is meaningful on a quiet day too -- and on a day when nothing changed it is
+  just the heading, a divider between what is coming (in #3) and what happened.
+#}
+{% macro day_group(day) %}
+  <h2
+    class="stream__day {{ 'stream__day--empty' if not day.items.length }}"
+    {% if day.isToday %}id="today"{% endif %}
+  >{{ day.label }}</h2>
+
+  {% if day.items.length %}
+    <ul class="stream__list">
+      {% for item in day.items %}
+        {{ file_row(item) }}
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endmacro %}

@@ -21,8 +21,11 @@ import { startDemo } from './demo.js';
  * scroll IS the point: the task list only makes its case for
  * still-to-do-then-done ordering if you can see both halves at once.
  *
- * The demo seeds a sitting two days ago, so "New since you last looked" is
- * populated on the home shot rather than absent (see scripts/demo.js).
+ * The demo seeds a sitting two days ago, so the stream's New badges are on the
+ * first shot rather than absent (see scripts/demo.js).
+ *
+ * The stream comes first because it is what she lands on. `files.png` is the
+ * folder page behind the Files toggle, which is where every other shot starts.
  */
 
 const OUT = join(fileURLToPath(new URL('..', import.meta.url)), 'docs', 'screenshots');
@@ -49,12 +52,17 @@ async function main() {
     await page.waitForLoadState('networkidle');
     await shot('login');
 
-    // This first load is also what rotates the seeded visit into `previous`.
+    // This first load is also what rotates the seeded visit into `previous`,
+    // which is what puts the New badges on the shot below.
     await page.getByLabel('Your passphrase').fill(demo.passphrase);
     await page.getByRole('button', { name: 'Enter' }).click();
     await page.waitForURL(`${demo.url}/`);
     await page.waitForLoadState('networkidle');
-    await shot('home');
+    await shot('stream');
+
+    await page.goto('/files');
+    await page.waitForLoadState('networkidle');
+    await shot('files');
 
     await page.goto('/files/Biology%20101/Lectures');
     await page.waitForLoadState('networkidle');

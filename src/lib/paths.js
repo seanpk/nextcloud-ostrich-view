@@ -123,11 +123,17 @@ export function joinPath(normalizedParent, childName) {
 /**
  * Breadcrumb trail for a normalized path, root first.
  * Each crumb: { name, path, href }. Powers the unobtrusive location line.
+ *
+ * The root crumb is "Files", pointing at /files: the trail names where the
+ * folder actually sits, and the top of the folder tree is Files now that / is
+ * the stream. A crumb reading "Home" and leading to a list of recent changes
+ * would be a trail that lies about its own root.
+ *
  * @param {string} normalized
  * @returns {Array<{name: string, path: string, href: string}>}
  */
 export function breadcrumbs(normalized) {
-  const crumbs = [{ name: 'Home', path: '', href: '/' }];
+  const crumbs = [{ name: 'Files', path: '', href: '/files' }];
   let acc = '';
   for (const segment of pathSegments(normalized)) {
     acc = acc === '' ? segment : `${acc}/${segment}`;

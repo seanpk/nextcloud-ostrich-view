@@ -297,6 +297,14 @@ test('a garbled answer needs attention; it is not the self-healing page', async 
   // meant "nothing answered". A wrong NC_BASE_URL, or a proxy rewriting the
   // reply, would therefore promise her the file server was "taking a break" and
   // re-check every 60 seconds, forever, for a fault that needs a person.
+  //
+  // ASKED OF /files, NOT /. A PROPFIND is what can tell the difference: the
+  // stream's SEARCH treats a bodyless multistatus as its ordinary "nothing
+  // matched" answer (see parseSearchResults), and with no date filter that now
+  // means "there are no files in the shared tree" -- which is an odd thing to
+  // be told, but not a thing this code can distinguish from a genuinely empty
+  // share. The classification being tested here is the error handler's, and it
+  // is the same handler either way.
   const baseUrl = await stubUpstream((res) => {
     res.writeHead(207, { 'Content-Type': 'application/xml' });
     res.end('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>');
@@ -304,7 +312,7 @@ test('a garbled answer needs attention; it is not the self-healing page', async 
   const { app } = await boot({ baseUrl });
   const cookie = await login(app);
 
-  const response = await app.inject({ url: '/', headers: { cookie } });
+  const response = await app.inject({ url: '/files', headers: { cookie } });
 
   assert.equal(response.statusCode, 502, 'something answered: waiting will not mend it');
   assert.equal(response.headers['retry-after'], undefined);
@@ -324,13 +332,32 @@ test('a garbled answer: still nothing about the deployment beyond the one settin
   const { app } = await boot({ baseUrl });
   const cookie = await login(app);
 
-  const response = await app.inject({ url: '/', headers: { cookie } });
+  const response = await app.inject({ url: '/files', headers: { cookie } });
 
   // NC_BASE_URL is the name of a setting, which is the actionable part. Its
   // value, the account, and the DAV paths are not.
   for (const secret of [TEST_APP_PASSWORD, '127.0.0.1', 'remote.php', 'multistatus']) {
     assert.ok(!response.body.includes(secret), `the page must not mention ${secret}`);
   }
+});
+
+test('a stream whose SEARCH found nothing says so, rather than crying failure', async () => {
+  // The other side of the coin, and why the two tests above ask /files. An
+  // empty multistatus IS a legitimate SEARCH answer, so the stream renders its
+  // empty state -- a claim it can make honestly now that a lookup which
+  // actually failed reaches an error page instead of rendering as this.
+  const baseUrl = await stubUpstream((res) => {
+    res.writeHead(207, { 'Content-Type': 'application/xml' });
+    res.end('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>');
+  });
+  const { app } = await boot({ baseUrl });
+  const cookie = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie } });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Nothing has changed yet/);
+  assert.doesNotMatch(response.body, /taking a break|needs attention/);
 });
 
 // --- Everything else is unchanged -------------------------------------------

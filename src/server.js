@@ -13,11 +13,11 @@ import { loadConfig } from './config.js';
 import { createClient } from './nextcloud/client.js';
 import { createPreviewCache } from './nextcloud/previews.js';
 import { createVisitStore } from './store/visits.js';
-import { createNewSinceCache } from './lib/new-since.js';
+import { createTtlCache } from './lib/stream.js';
 import { InvalidPathError } from './lib/paths.js';
 import { NC_UNREACHABLE, NextcloudError } from './nextcloud/client.js';
 import registerAuthRoutes from './routes/auth.js';
-import registerHomeRoutes from './routes/home.js';
+import registerStreamRoutes from './routes/stream.js';
 import registerFileRoutes from './routes/files.js';
 import registerMediaRoutes from './routes/media.js';
 import registerTaskRoutes from './routes/tasks.js';
@@ -99,7 +99,7 @@ function isPublicPath(pathname) {
  * can boot a fully wired instance on an ephemeral port against the mock server.
  *
  * @param {{ config?: object, logger?: object|boolean,
- *           newSinceCache?: ReturnType<import('./lib/new-since.js').createNewSinceCache> }} [options]
+ *           streamCache?: ReturnType<import('./lib/stream.js').createTtlCache> }} [options]
  */
 export async function buildApp(options = {}) {
   const config = options.config ?? loadConfig();
@@ -141,13 +141,14 @@ export async function buildApp(options = {}) {
     'previewCache',
     createPreviewCache({ dir: config.previewCacheDir, client: nextcloud, log: app.log })
   );
-  // "New since you last looked" state. Same directory, same volume: one mount
-  // carries everything this app remembers between restarts.
+  // Who last looked, which is what the stream's New badges are measured
+  // against. Same directory, same volume: one mount carries everything this app
+  // remembers between restarts.
   app.decorate('visits', createVisitStore({ dir: config.dataDir, log: app.log }));
-  // The home route's short-lived memory of its last SEARCH answer. Built here
+  // The stream route's short-lived memory of its last SEARCH answer. Built here
   // rather than inside the route so a test can hand in one with a short TTL and
   // a fake clock instead of waiting a minute for an entry to expire.
-  app.decorate('newSinceCache', options.newSinceCache ?? createNewSinceCache());
+  app.decorate('streamCache', options.streamCache ?? createTtlCache());
 
   await app.register(fastifySecureSession, {
     key: config.sessionKey,
@@ -388,7 +389,7 @@ export async function buildApp(options = {}) {
   });
 
   await app.register(registerAuthRoutes);
-  await app.register(registerHomeRoutes);
+  await app.register(registerStreamRoutes);
   await app.register(registerFileRoutes);
   await app.register(registerMediaRoutes);
   await app.register(registerTaskRoutes);

@@ -1,0 +1,21 @@
+{% extends "layout.njk" %}
+{% import "_tiles.njk" as t %}
+
+{#
+  Files -- the top of the folder tree.
+
+  The greeting stays here as well as on the stream: this is still a place she
+  arrives at directly (the toggle is on every page), and a page that opened with
+  a bare "FOLDERS" would read as a file manager rather than as her own things.
+#}
+
+{% block heading %}
+  {% if viewer %}Hello, {{ viewer.label }}{% else %}Shared files{% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="section" aria-labelledby="folders-heading">
+    <h2 class="section__title" id="folders-heading">Folders</h2>
+    {{ t.tile_grid(tiles, "Nothing has been shared with you yet.") }}
+  </section>
+{% endblock %}

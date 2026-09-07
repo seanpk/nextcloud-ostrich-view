@@ -74,12 +74,12 @@ function previewUrlFor(entry, kind) {
  * answers for those paths with a calm "we can't show this one" page if someone
  * arrives by URL.)
  *
- * The same function feeds "new since you last looked": those entries come from
- * `search.js` in the identical `parseMultistatus` shape, and `buildNewSince`
- * (src/lib/new-since.js) only adds a `folderLabel` on top, which the tile macro
- * renders in place of `sizeLabel`. Everything else -- previewUrl included --
- * comes out of here unchanged, which is why a new-since tile and a folder tile
- * behave identically.
+ * The same function feeds the stream: those entries come from `search.js` in
+ * the identical `parseMultistatus` shape, and `fileEvents` (src/lib/stream.js)
+ * only wraps a tile in an event carrying the time and the containing folder.
+ * Everything else -- previewUrl included -- comes out of here unchanged, which
+ * is why a stream row and a folder tile can never disagree about what a file
+ * is or where it opens.
  *
  * @param {object} entry from `parsePropfind`
  * @returns {{name:string, path:string, isFolder:boolean, kind:string,

@@ -14,7 +14,7 @@
   {
     "name": "nana",
     "label": "Nana",
-    "_comment": "Test-only. Passphrase is the string: sunny meadow. Used ONLY by new-since.spec.js, which rewrites this viewer's record in state.json to simulate coming back the next day -- keeping it to itself is what stops that edit from disturbing the other specs.",
+    "_comment": "Test-only. Passphrase is the string: sunny meadow. Used ONLY by stream.spec.js, which rewrites this viewer's record in state.json to simulate coming back the next day -- keeping it to itself is what stops that edit from disturbing the other specs.",
     "passphraseHash": "$2a$10$poU8Xrm/PUvW7fdukob4wu5zJ0HdcQbSk0HIMU4FtDRL4e395vm/K"
   }
 ]
