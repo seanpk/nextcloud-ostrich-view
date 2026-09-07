@@ -215,11 +215,8 @@ a {
   margin: 0 0 0.6rem;
 }
 
-.section--new .section__title {
-  color: var(--accent-dark);
-}
-
-/* When she last looked, and what didn't fit: quiet lines around the tiles. */
+/* When she last looked, and what the page does not list: quiet lines above
+   and below the day groups. */
 .section__note {
   font-size: 1rem;
   color: var(--ink-soft);
@@ -283,8 +280,9 @@ a {
  * A file/folder tile is a card: a thumbnail band on top, the name and its
  * muted second line below -- "previews of the document/photo with the name
  * listed below", the way the project brief describes it. One macro
- * (_tiles.njk) feeds home, every folder listing and "new since you last
- * looked" alike, so this is the one place that shape is drawn.
+ * (_tiles.njk) feeds the Files home and every folder listing alike, so this
+ * is the one place that shape is drawn. The stream's rows are a different
+ * shape and live in the stream block at the end of this file.
  *
  * `.tile--tasklist` (tasks-home.njk) is a different component wearing the
  * same base class for its chrome (card background/border/radius) -- its own
@@ -379,12 +377,6 @@ a.tile:focus-visible {
 .tile__meta {
   font-size: 0.95rem;
   color: var(--ink-faint);
-}
-
-/* "in Biology 101 › Lectures" -- context for a tile shown out of its folder.
-   Long course names must wrap rather than push the card past the viewport. */
-.tile__meta--folder {
-  overflow-wrap: anywhere;
 }
 
 .empty {
@@ -935,5 +927,229 @@ a.tile:focus-visible {
 @media (min-width: 40rem) {
   .task__title {
     font-size: 1.45rem;
+  }
+}
+
+/* =========================================================================
+   #2 -- The stream (Latest)
+   Everything below belongs to the stream, plus the two adjustments the
+   three-way toggle needs. Kept in one block at the end of the file so it can
+   be read (or moved) as a unit.
+   ========================================================================= */
+
+/*
+ * Latest / Files / Tasks, on a 360px phone, beside a Back button.
+ *
+ * Two options fitted comfortably; three do not, so the padding and the type
+ * size are fluid rather than fixed. At 360px they resolve to their floors and
+ * the row just fits; by 40rem they are back to the values the two-option
+ * toggle used, so nothing changes on a desktop. The brand text already steps
+ * aside wherever the toggle is shown (see the M3 block above).
+ *
+ * The floors are not free choices: ux.spec.js measures every tap target on
+ * every page at both viewports, and the toggle has to clear 44px in both
+ * dimensions with the Back button next to it and no horizontal scroll.
+ */
+.toggle {
+  gap: 0.35rem;
+}
+
+.toggle__option {
+  padding: 0 clamp(0.45rem, 2.2vw, 1rem);
+  font-size: clamp(0.95rem, 3vw, 1.05rem);
+}
+
+/* ---------- The day axis ---------- */
+
+.stream {
+  margin: 0;
+}
+
+/*
+ * A day heading. Quiet, but not as quiet as a section label: it is the thing
+ * she scans for ("what happened yesterday?"), so it keeps sentence case and
+ * real weight rather than the uppercase-and-tracking treatment .section__title
+ * gets.
+ */
+.stream__day {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin: 1.5rem 0 0.6rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid var(--line);
+}
+
+.stream__day:first-child {
+  margin-top: 0;
+}
+
+/*
+ * "Today" with nothing under it. Still a real divider -- it is the line #3
+ * puts what is coming above and what happened below, and the target of the
+ * `#today` anchor -- but it must not look like a heading whose list failed to
+ * load.
+ */
+.stream__day--empty {
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+/*
+ * The anchor. `/#today` (and, from #3, the Latest toggle and the login
+ * redirect) lands here, and the top bar is fixed, so without this the heading
+ * would be scrolled to underneath it. No JavaScript is involved in any of
+ * this: the anchor IS the mechanism.
+ */
+#today {
+  scroll-margin-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 0.75rem);
+}
+
+/* ---------- One row ---------- */
+
+.stream__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+/*
+ * A row, not a card. The whole row is the tap target -- 64px of thumbnail plus
+ * its padding puts it well past the 56px floor -- and it stays one line high
+ * however long the file name is, because the name wraps inside the middle
+ * column rather than pushing the row wider.
+ */
+.stream__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+a.stream__row:hover,
+a.stream__row:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.stream__row--static {
+  /* A file this app cannot open inline reads as a label, not a button --
+     the same language as .tile--static on the folder pages. */
+  border-style: dashed;
+  color: var(--ink-soft);
+}
+
+.stream__thumb {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem; /* 64px at the 18px base */
+  height: 3.5rem;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.stream__preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Same reasoning as .tile--pdf: a page thumbnail (and the flat icon the
+   /preview/ route redirects to when no provider can render one) must be shown
+   whole, not cropped to its middle. */
+.stream__row--pdf .stream__preview,
+.stream__row--document .stream__preview {
+  object-fit: contain;
+}
+
+.stream__icon {
+  width: 2rem;
+  height: 2rem;
+  object-fit: contain;
+}
+
+.stream__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0; /* lets a long name wrap instead of widening the row */
+  flex: 1 1 auto;
+}
+
+.stream__name {
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stream__where {
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+/* The time, and the badge above it. Right-aligned and narrow: it is the last
+   thing she needs, so it gets the least room. */
+.stream__aside {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.stream__time {
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* ---------- New ---------- */
+
+/*
+ * The badge is the signal; the tint behind the row is only reinforcement. A
+ * colour alone would be invisible to a colour-blind reader and to a screen
+ * reader alike, so the word is always there and the tint never carries meaning
+ * on its own.
+ */
+.stream__badge {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  white-space: nowrap;
+}
+
+.stream__item--new .stream__row {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.stream__item--new .stream__where,
+.stream__item--new .stream__time {
+  color: var(--ink-soft);
+}
+
+@media (min-width: 40rem) {
+  .stream__day {
+    font-size: 1.2rem;
+  }
+
+  .stream__name {
+    font-size: 1.25rem;
   }
 }

@@ -59,18 +59,27 @@ test('demo: the printed passphrase logs in, and the demo folders are there', asy
     'a Secure-only cookie would never come back over plain http://localhost'
   );
 
-  const home = await fetch(`${base}/`, { headers: { cookie } });
-  const homeBody = await home.text();
-  assert.equal(home.status, 200);
-  for (const folder of ['Biology 101', 'Math 210', 'Essays']) {
-    assert.match(homeBody, new RegExp(folder), `the home page lists ${folder}`);
-  }
-  assert.match(homeBody, new RegExp(DEMO_VIEWER.label));
+  const stream = await fetch(`${base}/`, { headers: { cookie } });
+  const streamBody = await stream.text();
+  assert.equal(stream.status, 200);
+  assert.match(streamBody, new RegExp(DEMO_VIEWER.label));
 
-  // The seeded "last visit" is what makes the demo's headline feature visible
-  // on the first load instead of never (see scripts/demo.js).
-  assert.match(homeBody, /New since you last looked/);
-  assert.match(homeBody, /pond water sample\.jpg/, 'a recently-stamped file from the dataset');
+  // The stream lands first, spanning several days of the dataset's stamps.
+  assert.match(streamBody, /pond water sample\.jpg/, 'a recently-stamped file from the dataset');
+  assert.match(streamBody, /id="today"/, 'the Today line #3 builds on');
+  assert.match(streamBody, /Yesterday/, 'the offsets really do span more than one day');
+
+  // The seeded "last visit" is what puts badges on the page on the very first
+  // load instead of never (see scripts/demo.js).
+  assert.match(streamBody, /stream__badge/);
+  assert.match(streamBody, /You were last here/);
+
+  const filesHome = await fetch(`${base}/files`, { headers: { cookie } });
+  const filesBody = await filesHome.text();
+  assert.equal(filesHome.status, 200);
+  for (const folder of ['Biology 101', 'Math 210', 'Essays']) {
+    assert.match(filesBody, new RegExp(folder), `the Files page lists ${folder}`);
+  }
 
   const folder = await fetch(`${base}/files/${encodeURIComponent('Biology 101')}`, {
     headers: { cookie },

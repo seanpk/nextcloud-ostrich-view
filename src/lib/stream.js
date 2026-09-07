@@ -214,7 +214,7 @@ export function buildStream(events, options = {}) {
     // Deliberately not a count. There is no cap for the page to overflow any
     // more -- only the bound on what we fetched -- so the honest thing to say
     // is that the list has an end and the history does not.
-    moreLabel: uncertain ? "Older changes aren't listed here." : null,
+    moreLabel: uncertain ? "Older changes aren’t listed here." : null,
     total: all.length,
   };
 }

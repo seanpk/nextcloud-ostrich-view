@@ -282,7 +282,9 @@ export default async function registerMediaRoutes(app) {
     // /content/ hit back to back, and they ask Nextcloud the same question.
     const entry = await stats.get(path, () => statFile(app.nextcloud, path));
     const parent = parentPath(path);
-    const backHref = parent === '' ? '/' : `/files/${encodePath(parent)}`;
+    // A top-level file goes back to the folder home, not to the stream: she may
+    // have arrived from either, and Files is where the file itself lives.
+    const backHref = parent === '' ? '/files' : `/files/${encodePath(parent)}`;
 
     if (entry.isFolder) {
       // Someone hand-typed a folder into /view/; show them the folder.

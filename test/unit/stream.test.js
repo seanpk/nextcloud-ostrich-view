@@ -273,7 +273,7 @@ test('buildStream: a full fetch says the history goes further back than the page
   const events = Array.from({ length: 50 }, () => event('2026-08-09T09:00:00'));
   const { moreLabel } = buildStream(events, { now: NOW, limit: 50, fetchLimit: 50 });
 
-  assert.equal(moreLabel, "Older changes aren't listed here.");
+  assert.equal(moreLabel, "Older changes aren’t listed here.");
 });
 
 test('buildStream: a short list that is all there is says nothing extra', () => {
@@ -294,7 +294,7 @@ test('buildStream: a walk that hit its bounds says so however short the list', (
 
   assert.equal(
     moreLabel,
-    "Older changes aren't listed here.",
+    "Older changes aren’t listed here.",
     'whole subtrees went unvisited: a short list must not imply "that is everything"'
   );
 });
@@ -307,7 +307,7 @@ test('buildStream: a truncated walk that found nothing still says so', () => {
   const { days, moreLabel } = buildStream([], { now: NOW, fetchLimit: 50, truncated: true });
 
   assert.deepEqual(days[0].items, []);
-  assert.equal(moreLabel, "Older changes aren't listed here.");
+  assert.equal(moreLabel, "Older changes aren’t listed here.");
 });
 
 // --- The "when were you last here" note --------------------------------------

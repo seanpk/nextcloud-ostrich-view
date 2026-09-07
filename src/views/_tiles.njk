@@ -1,11 +1,13 @@
 {#
-  Shared tile grid. One macro so home, folder listings and the "new since you
-  last looked" section stay visually identical -- same thumbnail, same target
-  size, same "there is nothing to tap here" fallback.
+  Shared tile grid. One macro so the Files home and every folder listing stay
+  visually identical -- same thumbnail, same target size, same "there is
+  nothing to tap here" fallback. When `tile.previewUrl` is set the thumbnail
+  replaces the icon.
 
-  When `tile.previewUrl` is set the thumbnail replaces the icon; when
-  `tile.folderLabel` is set (new-since tiles, shown out of their folder) the
-  containing folder replaces the file size on the muted second line.
+  The stream draws rows rather than tiles and has its own macro (_stream.njk):
+  a page you read down wants a different shape from a page you look through.
+  Both are fed by the same `toTile`, so they cannot disagree about what a file
+  is or where it opens.
 #}
 
 {% macro tile_body(tile) %}
@@ -18,9 +20,7 @@
   </span>
   <span class="tile__text">
     <span class="tile__name">{{ tile.name }}</span>
-    {% if tile.folderLabel %}
-      <span class="tile__meta tile__meta--folder">in {{ tile.folderLabel }}</span>
-    {% elif tile.sizeLabel %}
+    {% if tile.sizeLabel %}
       <span class="tile__meta">{{ tile.sizeLabel }}</span>
     {% endif %}
   </span>
