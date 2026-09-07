@@ -220,18 +220,35 @@ test.describe('Signed in', () => {
 
   // --- the tile grid ------------------------------------------------------
 
-  test('a Word document is tappable; an office file we cannot render is not', async ({ page }) => {
+  test('both office files are tappable from the folder grid', async ({ page }) => {
     await page.goto(FOLDER);
 
     const docx = page.locator('.tiles__item', { hasText: 'Week 3 Notes.docx' });
     await expect(docx.locator('a.tile')).toHaveAttribute('href', DOCX);
 
-    // marks.xlsx has no page worth opening, so the grid gives it no link --
-    // the same visual language as a .txt. (It still answers by URL, with the
-    // download; the test above walks that path.)
+    // marks.xlsx too: we cannot show it, but its page carries the download
+    // button -- and a button reachable only by typing a URL is not reachable.
     const xlsx = page.locator('.tiles__item', { hasText: 'marks.xlsx' });
-    await expect(xlsx.locator('.tile--static')).toBeVisible();
-    await expect(xlsx.locator('a')).toHaveCount(0);
+    await expect(xlsx.locator('a.tile')).toHaveAttribute('href', XLSX);
+    await expect(xlsx.locator('.tile--static')).toHaveCount(0);
+  });
+
+  test('tapping the workbook lands on its download page', async ({ page }) => {
+    await page.goto(FOLDER);
+    await page.getByRole('link', { name: /marks\.xlsx/ }).click();
+
+    await expect(page).toHaveURL(new RegExp(`${XLSX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+    await expect(page.getByRole('link', { name: 'Download marks.xlsx' })).toBeVisible();
+  });
+
+  test('a file with nothing to show and nothing to keep is still a plain label', async ({ page }) => {
+    // The line the href rule draws: a scripted SVG has no page worth opening,
+    // so the grid gives it no link at all.
+    await page.goto(FOLDER);
+
+    const svg = page.locator('.tiles__item', { hasText: 'mitosis.svg' });
+    await expect(svg.locator('.tile--static')).toBeVisible();
+    await expect(svg.locator('a')).toHaveCount(0);
   });
 });
 

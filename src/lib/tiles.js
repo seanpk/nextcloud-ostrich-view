@@ -1,5 +1,5 @@
 import { encodePath } from './paths.js';
-import { canView, kindOf } from './filetypes.js';
+import { canView, isDownloadable, kindOf } from './filetypes.js';
 import { isValidEtag, isValidFileId } from '../nextcloud/previews.js';
 
 /**
@@ -8,12 +8,19 @@ import { isValidEtag, isValidFileId } from '../nextcloud/previews.js';
  * M2 filled in the two seams M1 left here:
  *  - `previewUrl` points at `/preview/<fileId>?v=<etag>`, so the template swaps
  *    the flat icon for a real thumbnail;
- *  - `href` points file tiles at `/view/<path>` for the files we can actually
- *    show -- which is `canView`'s decision, taken from the same table
- *    `/content/*` reads to choose a Content-Type, so a tile can never link to
- *    something the viewer would meet with a broken picture. That is either a
- *    file the browser paints from `/content/*` (a photo, a PDF) or one we
- *    convert to HTML ourselves before she ever sees it (a Word document).
+ *  - `href` points file tiles at `/view/<path>` for every file whose viewer
+ *    page has something on it. Two ways that happens, and both are read from
+ *    the same table `/content/*` reads to choose a Content-Type, so a tile can
+ *    never link to something the viewer would meet with a broken picture:
+ *      `canView`       -- the browser paints it (a photo, a PDF) or we convert
+ *                         it to HTML ourselves first (a Word document);
+ *      `isDownloadable` -- we cannot show it, but the page can hand over the
+ *                         original (a .pptx, a .xlsx, an OpenDocument file).
+ *    A downloadable-but-unrenderable file therefore links to the calm "we
+ *    can't show this one" page, which carries the download button -- the whole
+ *    point of that button is that it be reachable by tapping, not only by
+ *    typing a URL. Everything else (HEIC, a scripted SVG, an unknown binary)
+ *    keeps `href: null`: there would be nothing on the page it opened.
  *
  * Only kinds Nextcloud reliably renders a thumbnail for get a `previewUrl`.
  * PDFs are included because our deployment runs Nextcloud AIO's Imaginary
@@ -70,11 +77,12 @@ function previewUrlFor(entry, kind) {
 /**
  * Turn a PROPFIND entry into a tile.
  *
- * Folders link into `/files/...`; images, PDFs and Word documents link into
- * `/view/...`. Anything else keeps `href: null` and renders as a plain label -- M1's visual
- * language for "this is here, but there is nothing to tap". (`/view/` still
- * answers for those paths with a calm "we can't show this one" page if someone
- * arrives by URL.)
+ * Folders link into `/files/...`. Images, PDFs, Word documents and the office
+ * files we can only offer as downloads link into `/view/...`. Anything else
+ * keeps `href: null` and renders as a plain label -- M1's visual language for
+ * "this is here, but there is nothing to tap". (`/view/` still answers for
+ * those paths with a calm "we can't show this one" page if someone arrives by
+ * URL; it just has no download button to offer them.)
  *
  * The same function feeds "new since you last looked": those entries come from
  * `search.js` in the identical `parseMultistatus` shape, and `buildNewSince`
@@ -94,7 +102,7 @@ export function toTile(entry) {
 
   let href = null;
   if (entry.isFolder) href = `/files/${encoded}`;
-  else if (canView(entry)) href = `/view/${encoded}`;
+  else if (canView(entry) || isDownloadable(entry)) href = `/view/${encoded}`;
 
   return {
     name: entry.name,
