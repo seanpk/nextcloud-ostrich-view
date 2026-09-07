@@ -7,7 +7,7 @@
  * those skeleton entries sit at the top level indistinguishable from the
  * folders the owner actually shared. This module is the filter.
  *
- * Pure, no I/O, no client -- same shape as ../lib/new-since.js. The route
+ * Pure, no I/O, no client -- same shape as ../lib/stream.js. The route
  * decides what to do with the verdicts; this only produces them.
  */
 
