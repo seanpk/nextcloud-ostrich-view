@@ -63,7 +63,7 @@ async function main() {
     await page.waitForURL(`${demo.url}/#today`);
     await page.waitForLoadState('networkidle');
     // ...then back up a little, so the shot holds both sides of the line: the
-    // overdue task and the undated line above it, the Today divider, and the
+    // overdue task and the undated twisty above it, the Today divider, and the
     // first of the history below. Landing exactly on the anchor would show the
     // history alone, which is the half this page already had.
     await page.evaluate(() => window.scrollBy(0, -420));

@@ -22,6 +22,21 @@ Status: planned 2026-09-07. Depends on #2 (the stream). Starts after #2 merges.
   is filed as its own issue, to be designed together with #4 (task cards). When
   that lands, this link points at it.
 
+**Superseded 2026-09-07 — the undated line is now a twisty, not a link.** The
+link out was the wrong answer, and the reason is what this whole page is for:
+Latest is already the cross-list view. Every dated open task is above the line,
+every finished one is in the history below it — so the undated bucket was the
+one thing on the page a reader had to leave the page to see, and where it sent
+her was a grid of list buttons rather than the four chores she was after. It is
+now a JS-free `<details>` sitting where the line was: the same wording as the
+summary ("Also 3 tasks without a due date", singular handled), closed by
+default so the axis is not pushed down the screen, and the tasks themselves as
+ordinary `task_item` rows inside it — same icon as a due row, "No due date"
+where the due row names a day, sorted by list then A-Z, each opening its list
+page. Files and Tasks remain the places for browsing by structure, and the
+"all tasks together" issue is unaffected: when it lands it is a Tasks-side
+view, not this page's escape hatch.
+
 ## What changes for the reader
 
 - Opening the app lands on **Today**. Above it, what's coming: "Due Tue, Aug 12 —
@@ -99,8 +114,13 @@ it is what makes "added" honest with the data this client actually writes.
 ```js
 export function taskEvents(todos, list, ledger, { now })  // → history events + ledger updates
 export function upcomingTasks(todos, list, { now })   // → dated open tasks
-export function undatedOpenCount(todos)
+export function undatedTasks(todos, list)             // → undated open tasks, as rows
+export function sortUndated(rows)                     // → by list, then A-Z
 ```
+
+(`undatedTasks` takes no clock: an undated row has no date to read against one,
+which is the whole difference between it and `upcomingTasks`. It was
+`undatedOpenCount(todos) → number` until the twisty replaced the link.)
 
 Event rules (history, below the line), fed by the todos plus the ledger:
 - `task-added` at `createdAt ?? stampAt`, on first sighting (§1b).
@@ -152,14 +172,18 @@ todosByList = await Promise.allSettled(calendars.map(c => fetchTodos(client, c.s
 
 - `buildStream(events, …)` accepts mixed `file`/`task-*` events; sorts by `at`
   desc; applies the overall limit (drop the oldest); day-groups; sets `isNew`.
-- New: `buildTimeline({ upcoming, history, undatedCount, tasksUnavailable })` →
+- New: `buildTimeline({ upcoming, history, undated, tasksUnavailable })` →
   the template model `{ future: [...days], today: {...}, past: [...days],
-  undatedLabel, moreLabel }`. `undatedLabel` = "Also 1 task without a due date"
-  / "Also 17 tasks without a due date" (pluralized), null when zero.
+  undated, moreLabel }`. `undated` is `{label, rows}` — the label is "Also 1
+  task without a due date" / "Also 17 tasks without a due date" (pluralized) —
+  or null when there are none. A twisty row is badged **New** when the same
+  task's Added row below the line is: the badge rule reads `at`, which an
+  undated row has not got, so rather than invent a second rule the timeline
+  reads the answer the history already came to, matched by list slug and UID.
 
 ### 5. Templates and CSS
 
-- `stream.njk`: future groups, then the undated line, then `<h2 id="today">`,
+- `stream.njk`: future groups, then the undated twisty, then `<h2 id="today">`,
   then the history. `_stream.njk` gains `task_item(event)` (icon by kind: a
   check for finished, a plus for added, a pencil for changed, a small calendar
   for due; four tiny SVGs in `public/icons/`), the list name with its accent
@@ -185,14 +209,18 @@ todosByList = await Promise.allSettled(calendars.map(c => fetchTodos(client, c.s
 
 Unit: `stream-tasks.test.js` (event rules, 60 s tolerance, cancelled skipped,
 fallbacks when stamps are missing, upcoming order with overdue at the bottom,
-undated count/pluralization), `stream.test.js` (mixed merge order, limit drops
+undated rows, their by-list-then-A-Z order, pluralization, empty → null),
+`stream.test.js` (mixed merge order, limit drops
 the oldest), `stream-route.test.js` (one list failing → page still renders and
 the warning logs once; calendar PROPFIND failing → `tasksUnavailable` line).
 
 E2E: a finished task appears between file rows in time order with its list name;
-future tasks above Today, overdue in red just above the line; "Also N tasks
-without a due date" links to `/tasks`; landing on `/#today` puts Today in view
-on the phone with JS off; the failing-list mock still renders the page.
+future tasks above Today, overdue in red just above the line; the "Also N tasks
+without a due date" summary is visible and ≥44px with its rows hidden until it
+is tapped, after which they are visible and link to `/tasks/<slug>`, at the
+normal root font and at a doubled one, with no horizontal overflow either way;
+landing on `/#today` puts Today in view on the phone with JS off; the
+failing-list mock still renders the page.
 
 ### 8. Docs
 
@@ -202,9 +230,9 @@ what "changed" means and that deletions are not shown.
 ## New issue to open (not part of #3)
 
 **"All tasks together, lists as filters"** — a `/tasks/all` view merging every
-shared list, sortable by due date, with the list names as filter chips; the
-"Also N tasks without a due date" line then links to it filtered to undated.
-Design with #4 (task cards), since it decides how a task row looks.
+shared list, sortable by due date, with the list names as filter chips. Design
+with #4 (task cards), since it decides how a task row looks. (It no longer has
+to rescue the undated line: that now opens in place on Latest.)
 
 ## Acceptance
 
