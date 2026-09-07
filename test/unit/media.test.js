@@ -1,6 +1,15 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
+import { buildApp } from '../../src/server.js';
+import { loadConfig } from '../../src/config.js';
+import { createMockNextcloud, TEST_APP_PASSWORD, TEST_USER } from '../mock-nextcloud/index.js';
+import { SHARE_OWNER } from '../mock-nextcloud/tree.js';
+import { MAX_DOCX_BYTES } from '../../src/lib/office.js';
 import {
   contentDisposition,
   createStatCache,
@@ -10,10 +19,13 @@ import {
 } from '../../src/routes/media.js';
 
 /**
- * The pure decisions `/content/*` makes about one proxied file: which request
- * headers go upstream, which response headers come back, and when a revisit
- * can be answered without touching Nextcloud at all. (What the bytes may be
- * called is src/lib/filetypes.js's decision, tested alongside it.)
+ * Two halves. First, the pure decisions `/content/*` makes about one proxied
+ * file: which request headers go upstream, which response headers come back,
+ * and when a revisit can be answered without touching Nextcloud at all. (What
+ * the bytes may be called is src/lib/filetypes.js's decision, tested alongside
+ * it.) Then, at the bottom, `/download/*` and the document viewer against a
+ * booted app -- those are questions about a whole response, not about a
+ * function.
  */
 
 // --- range passthrough -----------------------------------------------------
@@ -140,8 +152,19 @@ test('etagMatches: a different version is a miss, so the bytes get sent', () => 
 
 // --- content disposition ---------------------------------------------------
 
-test('contentDisposition: always inline -- this app never offers a download', () => {
+test('contentDisposition: inline is the default -- /content/* never offers a download', () => {
   assert.match(contentDisposition('syllabus.pdf'), /^inline; /);
+});
+
+test('contentDisposition: attachment is opt-in, and only /download/* opts in', () => {
+  // A browser saves an attachment rather than rendering it, which is what
+  // makes it safe for /download/* to send an office file's real MIME type.
+  assert.match(contentDisposition('notes.docx', { attachment: true }), /^attachment; /);
+  assert.match(contentDisposition('notes.docx', { attachment: false }), /^inline; /);
+  // ...and the filename half is identical either way.
+  const [, ...inline] = contentDisposition('notes.docx').split(';');
+  const [, ...attached] = contentDisposition('notes.docx', { attachment: true }).split(';');
+  assert.deepEqual(attached, inline);
 });
 
 test('contentDisposition: unicode names survive in the RFC 5987 form', () => {
@@ -239,3 +262,269 @@ test('statCache: it stays bounded', async () => {
   assert.ok(cache.size <= 4, `expected <= 4 entries, got ${cache.size}`);
 });
 
+
+// --- /download/* and the document viewer -----------------------------------
+
+/**
+ * The two routes office files added, wired the way they really are: real
+ * templates, real converter, a mock Nextcloud underneath.
+ *
+ * These need the whole app rather than a pure function because the questions
+ * are about the response: what disposition and Content-Type a download
+ * carries, which paths the route refuses to answer at all, and -- the one that
+ * matters most -- that a document which will not convert still renders a calm
+ * page with a download button instead of a 500.
+ */
+
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const VIEWERS_FILE = join(HERE, '..', 'e2e', 'viewers.test.json');
+const PASSPHRASE = 'correct horse'; // mom, per viewers.test.json
+
+const DOCX = '/Biology%20101/Lectures/Week%203%20Notes.docx';
+const XLSX = '/Biology%20101/Lectures/marks.xlsx';
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+const cleanups = [];
+after(async () => {
+  for (const cleanup of cleanups.reverse()) await cleanup();
+});
+
+/** The app, on a mock Nextcloud serving `tree` (the default fixture unless said). */
+async function boot({ tree } = {}) {
+  const mock = createMockNextcloud(tree ? { tree } : undefined);
+  cleanups.push(() => mock.stop());
+  const { url } = await mock.start();
+
+  const config = loadConfig({
+    NC_BASE_URL: url,
+    NC_USER: TEST_USER,
+    NC_APP_PASSWORD: TEST_APP_PASSWORD,
+    SESSION_SECRET: 'c'.repeat(64),
+    VIEWERS_FILE,
+    NODE_ENV: 'test',
+    DATA_DIR: mkdtempSync(join(tmpdir(), 'ostrich-media-')),
+  });
+
+  const app = await buildApp({ config, logger: false });
+  cleanups.push(() => app.close());
+
+  const login = await app.inject({
+    method: 'POST',
+    url: '/login',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    payload: `passphrase=${encodeURIComponent(PASSPHRASE)}`,
+  });
+  assert.equal(login.statusCode, 302, 'the passphrase should have been accepted');
+  const raw = login.headers['set-cookie'];
+  const cookie = (Array.isArray(raw) ? raw : [raw]).map((c) => c.split(';')[0]).join('; ');
+
+  return {
+    /** @param {string} url */
+    get: (url) => app.inject({ url, headers: { cookie } }),
+  };
+}
+
+test('/download: hands over a Word document as itself, as an attachment', async () => {
+  const { get } = await boot();
+  const response = await get(`/download${DOCX}`);
+
+  assert.equal(response.statusCode, 200);
+  // The real MIME, which is what makes a phone open it in Word -- safe only
+  // because of the disposition on the next line. See src/lib/filetypes.js.
+  assert.equal(response.headers['content-type'], DOCX_TYPE);
+  assert.match(response.headers['content-disposition'], /^attachment; filename="Week 3 Notes\.docx"/);
+  assert.ok(response.headers['content-disposition'].includes("filename*=UTF-8''"));
+  // A household's coursework does not sit in a shared browser's disk cache.
+  assert.equal(response.headers['cache-control'], 'private, no-store');
+  // And the bytes really arrived: a .docx is a zip, so it starts "PK".
+  assert.ok(response.rawPayload.length > 1000);
+  assert.equal(response.rawPayload.subarray(0, 2).toString('latin1'), 'PK');
+});
+
+test('/download: a PDF is offered too, since she may want it on the phone', async () => {
+  const { get } = await boot();
+  const response = await get('/download/Biology%20101/syllabus.pdf');
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['content-type'], 'application/pdf');
+  assert.match(response.headers['content-disposition'], /^attachment;/);
+});
+
+test('/download: everything we do not offer 404s rather than gaining a way out', async () => {
+  const { get } = await boot();
+
+  for (const path of [
+    '/download/welcome.txt',
+    '/download/Biology%20101/Lectures/cell%20diagram.png',
+    '/download/Biology%20101/Lectures/mitosis.svg',
+    '/download/Biology%20101', // a folder
+    '/download/Biology%20101/nope.docx', // not there at all
+    '/download/', // nothing named
+  ]) {
+    const response = await get(path);
+    assert.equal(response.statusCode, 404, `${path} should not be downloadable`);
+  }
+});
+
+test('/download: a unicode filename survives the header', async () => {
+  const { get } = await boot();
+  const response = await get('/download/Caf%C3%A9%20Notes/r%C3%A9sum%C3%A9%20draft.pdf');
+
+  assert.equal(response.statusCode, 200);
+  const disposition = response.headers['content-disposition'];
+  assert.ok(disposition.includes("filename*=UTF-8''r%C3%A9sum%C3%A9%20draft.pdf"));
+  assert.ok(disposition.includes('filename="r_sum_ draft.pdf"'), 'with an ASCII fallback');
+});
+
+test('/download: climbing out of the shared tree is refused', async () => {
+  const { get } = await boot();
+
+  for (const path of ['/download/..%2F..%2Fetc%2Fpasswd', '/download/Biology%20101/..%2F..%2F..%2Fetc%2Fpasswd']) {
+    const response = await get(path);
+    assert.ok(response.statusCode >= 400 && response.statusCode < 500, `${path}: ${response.statusCode}`);
+    assert.ok(!response.body.includes('root:'));
+  }
+});
+
+test('/view: a Word document arrives as an article, with the original offered', async () => {
+  const { get } = await boot();
+  const response = await get(`/view${DOCX}`);
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /<article class="document">/);
+  // The fixture's own words, converted rather than described.
+  assert.match(response.body, /<h1>Week 3 — Photosynthesis<\/h1>/);
+  assert.match(response.body, /<li>The Calvin cycle happens in the stroma<\/li>/);
+  assert.match(response.body, /<div class="document__table">/);
+  // ...and the way to the real layout.
+  assert.match(response.body, new RegExp(`href="/download${DOCX}"`));
+  assert.match(response.body, /Download the original/);
+  // An ordinary scrolling page: no full-screen chrome, no pdf.js iframe.
+  assert.ok(!response.body.includes('viewer__fs'));
+  assert.ok(!response.body.includes('<iframe'));
+  // Nothing about it says "we can't show this one".
+  assert.ok(!response.body.includes('viewer--plain'));
+});
+
+test('/view: a second visit is served from the cache, not converted again', async () => {
+  const { get } = await boot();
+
+  const first = await get(`/view${DOCX}`);
+  const second = await get(`/view${DOCX}`);
+
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.statusCode, 200);
+  // Same render, byte for byte -- which is the observable half of "converted
+  // once". (What the cache costs is asserted in office.test.js.)
+  assert.equal(first.body, second.body);
+});
+
+test('/view: an office file we cannot render says so, and offers the original', async () => {
+  const { get } = await boot();
+  const response = await get(`/view${XLSX}`);
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /viewer--plain/);
+  assert.match(response.body, /We can’t show this one on screen/);
+  assert.match(response.body, /Photos, PDFs and Word documents open right here/);
+  assert.match(response.body, new RegExp(`href="/download${XLSX}"`));
+  assert.match(response.body, /Download marks\.xlsx/);
+  // Back is still there, just no longer the loudest thing on the page.
+  assert.match(response.body, /Back to the folder/);
+});
+
+test('/view: a document that will not convert is a calm page, never a 500', async () => {
+  // The file claims to be a .docx and is not one -- which is exactly what a
+  // truncated upload, or someone being difficult, looks like.
+  const { get } = await boot({
+    tree: {
+      Broken: {
+        type: 'folder',
+        sharedBy: SHARE_OWNER,
+        children: {
+          'not really.docx': {
+            type: 'file',
+            contentType: DOCX_TYPE,
+            bytes: Buffer.from('PK and then nothing that parses', 'utf8'),
+            size: 40,
+          },
+        },
+      },
+    },
+  });
+
+  const response = await get('/view/Broken/not%20really.docx');
+
+  assert.equal(response.statusCode, 200, 'a file we cannot read is not an outage');
+  assert.match(response.body, /viewer--plain/);
+  assert.match(response.body, /We can’t show this one on screen/);
+  assert.match(response.body, new RegExp('href="/download/Broken/not%20really.docx"'));
+  assert.ok(!response.body.includes('<article class="document">'));
+});
+
+test('/view: a document whose stat lies about its size is capped mid-stream', async () => {
+  // `oc:size` is a claim about a different moment than the read, so it cannot
+  // be the only ceiling: here the stat says 4 KB (comfortably under the
+  // conversion limit) and the body is over it. The read has to give up while
+  // the bytes are still arriving rather than buffer the lot and then measure.
+  const { get } = await boot({
+    tree: {
+      Sneaky: {
+        type: 'folder',
+        sharedBy: SHARE_OWNER,
+        children: {
+          'huge.docx': {
+            type: 'file',
+            contentType: DOCX_TYPE,
+            // Real bytes past the 15 MB conversion ceiling...
+            bytes: Buffer.alloc(MAX_DOCX_BYTES + 4096, 0x50),
+            // ...and a PROPFIND that says otherwise, so the cheap pre-check
+            // upstream of the read waves it through.
+            size: 4096,
+          },
+        },
+      },
+    },
+  });
+
+  const response = await get('/view/Sneaky/huge.docx');
+
+  assert.equal(response.statusCode, 200, 'an oversized document is not an outage');
+  assert.match(response.body, /viewer--plain/);
+  assert.match(response.body, /We can’t show this one on screen/);
+  // It is still an office file, so the original is still offered.
+  assert.match(response.body, new RegExp('href="/download/Sneaky/huge.docx"'));
+  assert.ok(!response.body.includes('<article class="document">'));
+});
+
+test('/view: a PDF page offers the download next to Full screen', async () => {
+  const { get } = await boot();
+  const response = await get('/view/Biology%20101/syllabus.pdf');
+
+  assert.equal(response.statusCode, 200);
+  // A plain link inside the viewer bar, so it works with JS off -- unlike the
+  // full-screen button, which ships hidden and is revealed by viewer.js.
+  assert.match(
+    response.body,
+    /<div class="viewer__bar">[\s\S]*href="\/download\/Biology%20101\/syllabus\.pdf"[\s\S]*viewer__fs/
+  );
+});
+
+test('/view: a photo has nothing to download, and says nothing about it', async () => {
+  const { get } = await boot();
+  const response = await get('/view/Biology%20101/Lectures/cell%20diagram.png');
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(!response.body.includes('/download/'), 'a photo is already shown at full size');
+  assert.match(response.body, /viewer__fs/, 'but full screen is still offered');
+});
+
+test('/view: a file we can neither show nor offer has one button, and it is Back', async () => {
+  const { get } = await boot();
+  const response = await get('/view/welcome.txt');
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /viewer--plain/);
+  assert.ok(!response.body.includes('/download/'));
+  assert.match(response.body, /btn btn--primary" href="\/">Back to the folder/);
+});

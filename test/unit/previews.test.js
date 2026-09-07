@@ -10,6 +10,7 @@ import {
   isValidEtag,
   isValidFileId,
   previewFileName,
+  readCapped,
   sniffImageType,
   staleVariants,
   sweepTempFiles,
@@ -355,6 +356,36 @@ test('cache: a chunked body over the cap is abandoned mid-stream', async () => {
     assert.ok(sent <= 10, `read ${sent} MB before giving up`);
     assert.deepEqual(await readdir(dir), []);
   });
+});
+
+/*
+ * `readCapped` is exported and used from routes/media.js too, for the `.docx`
+ * on its way to the converter -- so its contract is pinned directly here, not
+ * only through the preview cache above.
+ */
+
+test('readCapped: a body under the limit comes back whole', async () => {
+  const response = new Response(Buffer.from('twelve bytes'), { status: 200 });
+  assert.equal((await readCapped(response, 100)).toString(), 'twelve bytes');
+});
+
+test('readCapped: a body over the limit is null, and cancelled where it stood', async () => {
+  let sent = 0;
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      sent += 1;
+      controller.enqueue(new Uint8Array(Buffer.alloc(1024, 0x41)));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  // An endless body: only giving up as the bytes arrive can end this.
+  assert.equal(await readCapped(new Response(body, { status: 200 }), 4096), null);
+  assert.equal(cancelled, true, 'the rest of the body must never be transferred');
+  assert.ok(sent <= 8, `read ${sent} KB before giving up`);
 });
 
 test('cache: "no preview for this" is remembered, not re-asked on every tile', async () => {

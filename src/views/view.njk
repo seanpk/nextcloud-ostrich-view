@@ -1,13 +1,15 @@
 {% extends "layout.njk" %}
 
 {#
-  The inline viewer. Three shapes, one page:
+  The inline viewer. Four shapes, one page:
     image  -- the picture itself, full width, nothing else on screen
     pdf    -- our toolbar-free pdf.js page in an iframe (see scripts/pdfjs-viewer)
-    other  -- a calm explanation; never a download prompt
+    docx   -- the Word document converted to readable HTML, in one column
+    other  -- a calm explanation, plus the original to keep if there is one
 
   The layout's fixed Back button is what she uses to leave, so there is no
-  in-page navigation competing with it.
+  in-page navigation competing with it. Where a download is offered it is a
+  plain link, never anything that needs JavaScript.
 #}
 
 {% block heading %}{{ name }}{% endblock %}
@@ -26,23 +28,66 @@
         referrerpolicy="same-origin"
       ></iframe>
     </div>
+  {% elif mode == 'docx' %}
+    <div class="viewer viewer--document">
+      {% if downloadHref %}
+        <p class="viewer__actions">
+          <a class="btn btn--primary" href="{{ downloadHref }}">Download the original</a>
+        </p>
+      {% endif %}
+      {% if imagesDropped %}
+        <p class="viewer__note">
+          The pictures were left out — this document was too big to show them all.
+          Download the original to see them.
+        </p>
+      {% endif %}
+      {#
+        THE ONLY `| safe` IN THIS APP.
+
+        `documentHtml` is the output of `sanitizeHtml` in src/lib/office.js,
+        which does not filter the converter's HTML but re-serializes it from an
+        allow-list of tags and attributes, escaping every text node itself.
+        Nothing reaches here that we did not choose to write. Do not pass
+        anything else through this filter, and do not relax the allow-list
+        without reading that file's header comment first.
+      #}
+      <article class="document">{{ documentHtml | safe }}</article>
+    </div>
   {% else %}
     <div class="viewer viewer--plain">
       <img class="viewer__icon" src="{{ icon }}" alt="" aria-hidden="true" />
       <p class="lede">We can’t show this one on screen.</p>
       <p class="viewer__hint">
-        Photos and PDFs open right here. {{ name }} is a different kind of file.
+        Photos, PDFs and Word documents open right here. {{ name }} is a different
+        kind of file.
       </p>
-      <p><a class="btn btn--primary" href="{{ backHref }}">Back to the folder</a></p>
+      {% if downloadHref %}
+        {#
+          An office file we cannot render: the original is the whole answer, so
+          it gets the primary button and "Back" steps down to the quiet one.
+        #}
+        <p><a class="btn btn--primary" href="{{ downloadHref }}">Download {{ name }}</a></p>
+        <p><a class="btn btn--quiet" href="{{ backHref }}">Back to the folder</a></p>
+      {% else %}
+        <p><a class="btn btn--primary" href="{{ backHref }}">Back to the folder</a></p>
+      {% endif %}
     </div>
   {% endif %}
 
   {% if immersive %}
-    {#
-      Hidden until public/viewer.js removes the attribute -- with JS off there
-      is no dead control, just the plain (non-fullscreen) page above.
-    #}
     <div class="viewer__bar">
+      {#
+        A plain link, not hidden behind JS: the full-screen button below is
+        progressive enhancement, but keeping a PDF is something the page must
+        offer whether or not viewer.js ever runs.
+      #}
+      {% if downloadHref %}
+        <a class="btn btn--quiet" href="{{ downloadHref }}">Download</a>
+      {% endif %}
+      {#
+        Hidden until public/viewer.js removes the attribute -- with JS off there
+        is no dead control, just the plain (non-fullscreen) page above.
+      #}
       <button
         type="button"
         class="btn btn--quiet viewer__fs"

@@ -27,7 +27,9 @@
     "fast-xml-parser": "^5.10.1",
     "fastify": "^5.2.1",
     "ical.js": "^2.2.1",
+    "mammoth": "^1.12.2",
     "nunjucks": "^3.2.4",
+    "parse5": "^8.0.1",
     "pdfjs-dist": "^6.2.108"
   },
   "devDependencies": {

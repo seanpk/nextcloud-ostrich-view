@@ -148,11 +148,18 @@ export function sniffImageType(head) {
  * unbounded body to find out how big it was is exactly the failure mode the
  * limit exists to prevent.
  *
+ * Exported because `/view/*` needs the same guarantee for the one other place
+ * this app buffers a whole upstream body: a `.docx` on its way to the
+ * converter (see `readWholeFile` in ../routes/media.js). The `oc:size` from a
+ * PROPFIND is a claim about a different moment, so it cannot be the only
+ * ceiling -- and a second copy of this loop would be a second chance to get
+ * the cancel wrong.
+ *
  * @param {Response} response
  * @param {number} limit
  * @returns {Promise<Buffer|null>} null when the body is over the limit
  */
-async function readCapped(response, limit) {
+export async function readCapped(response, limit) {
   if (!response.body) return Buffer.from(await response.arrayBuffer());
 
   const reader = response.body.getReader();

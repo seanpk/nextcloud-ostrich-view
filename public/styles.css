@@ -1153,3 +1153,187 @@ a.stream__row:focus-visible {
     font-size: 1.25rem;
   }
 }
+
+/* ---------- Documents (/view/* on a .docx) ---------- */
+
+/*
+ * A converted Word document is the one page in this app that is mostly prose,
+ * so it gets prose treatment: one column at a readable measure, large type,
+ * generous leading. Exact layout was given up when the file was converted (see
+ * src/lib/office.js) -- what is left is words, and the job here is to make
+ * them easy to read on a phone held at arm's length.
+ *
+ * The download button sits above the text rather than below it: anyone who
+ * wants the real layout wants it before they start reading, not after
+ * scrolling forty paragraphs.
+ */
+.viewer--document {
+  display: block;
+}
+
+.viewer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+}
+
+/* "The pictures were left out" -- an aside about the rendering, not part of
+   the document, so it reads as chrome rather than as content. */
+.viewer__note {
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  background: var(--accent-tint);
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  margin: 0 0 1.25rem;
+}
+
+.document {
+  max-width: 40em;
+  margin: 0 auto;
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.1rem;
+  font-size: 1.15rem;
+  line-height: 1.65;
+  color: var(--ink);
+  /* A long unbroken URL or a German compound noun must wrap rather than push
+     the page sideways -- ux.spec.js asserts no horizontal scroll. */
+  overflow-wrap: break-word;
+}
+
+.document > :first-child {
+  margin-top: 0;
+}
+
+.document > :last-child {
+  margin-bottom: 0;
+}
+
+.document p {
+  margin: 0 0 1em;
+}
+
+.document h1,
+.document h2,
+.document h3,
+.document h4,
+.document h5,
+.document h6 {
+  line-height: 1.25;
+  margin: 1.6em 0 0.6em;
+  color: var(--ink);
+}
+
+/* The document's own headings step down from the page title, which is already
+   the file's name -- so its <h1> is a section head here, not a second title. */
+.document h1 {
+  font-size: 1.5rem;
+}
+
+.document h2 {
+  font-size: 1.3rem;
+}
+
+.document h3,
+.document h4,
+.document h5,
+.document h6 {
+  font-size: 1.15rem;
+}
+
+.document ul,
+.document ol {
+  margin: 0 0 1em;
+  padding-left: 1.5rem;
+}
+
+.document li {
+  margin: 0 0 0.4em;
+}
+
+.document blockquote {
+  margin: 0 0 1em;
+  padding-left: 1rem;
+  border-left: 4px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.document img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+  border-radius: 8px;
+}
+
+.document a {
+  color: var(--accent-dark);
+}
+
+/* Word's tables are the one thing in a document that genuinely wants more
+   width than a phone has. The sanitizer wraps every <table> in this, so a wide
+   one scrolls inside its own box -- with no JavaScript, and without the page
+   itself ever scrolling sideways. */
+.document__table {
+  overflow-x: auto;
+  margin: 0 0 1em;
+  -webkit-overflow-scrolling: touch;
+}
+
+.document table {
+  border-collapse: collapse;
+  /* Not `width: 100%`: a two-column table should not be stretched across a
+     desktop window, and a wide one is free to overflow into the scroller. */
+  min-width: 100%;
+}
+
+.document th,
+.document td {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.document th {
+  background: var(--accent-tint);
+  font-weight: 700;
+}
+
+/* A table cell is a paragraph in Word, so it arrives wrapped in <p>; those
+   must not carry paragraph spacing inside a cell. */
+.document td > p:only-child,
+.document th > p:only-child {
+  margin: 0;
+}
+
+.document pre {
+  /* Wrap rather than scroll: this is prose someone typed in Word, not code
+     whose line breaks mean anything. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  margin: 0 0 1em;
+}
+
+.document code {
+  font-size: 0.95em;
+}
+
+@media (min-width: 40rem) {
+  .document {
+    padding: 1.75rem 2rem;
+    font-size: 1.2rem;
+  }
+}
+
+/* ---------- The viewer bar with two controls ---------- */
+
+/* Download sits next to Full screen on a photo or a PDF page, so the bar needs
+   to space them and to wrap rather than overflow on a narrow phone. */
+.viewer__bar {
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}

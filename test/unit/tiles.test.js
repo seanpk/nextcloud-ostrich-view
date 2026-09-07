@@ -40,6 +40,61 @@ test('toTile: images and PDFs open in the inline viewer', () => {
   assert.equal(pdf.kind, 'pdf');
 });
 
+test('toTile: a Word document is tappable -- we convert it rather than paint it', () => {
+  // The tile links because `/view/` has something to show, even though
+  // `/content/` will only ever hand these bytes over as octet-stream: the
+  // page renders converted HTML instead. See src/lib/office.js.
+  const docx = toTile(
+    entry({
+      name: 'Week 3 Notes.docx',
+      path: 'Biology 101/Week 3 Notes.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+  );
+  assert.equal(docx.href, '/view/Biology%20101/Week%203%20Notes.docx');
+  assert.equal(docx.kind, 'document');
+  assert.equal(docx.previewUrl, null, 'Nextcloud has no office thumbnails without Collabora');
+});
+
+test('toTile: an office file we can only offer as a download is still tappable', () => {
+  // We cannot show a .pptx or a .xlsx, but its viewer page can hand over the
+  // original -- and a download button reachable only by typing a URL is not
+  // reachable. So the href rule is `canView` OR `isDownloadable`.
+  for (const contentType of [
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/msword',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.ms-excel',
+    'application/vnd.oasis.opendocument.text',
+    'application/vnd.oasis.opendocument.presentation',
+    'application/vnd.oasis.opendocument.spreadsheet',
+  ]) {
+    const tile = toTile(entry({ name: 'deck.x', path: 'deck.x', contentType }));
+    assert.equal(tile.href, '/view/deck.x', `${contentType} should open its download page`);
+    assert.equal(tile.icon, '/public/icons/document.svg');
+    assert.equal(tile.previewUrl, null, 'no office thumbnails without Collabora');
+  }
+});
+
+test('toTile: being tappable is about the page, not about the bytes', () => {
+  // The line the href rule draws: a file whose viewer page would be empty
+  // stays a plain label. Nothing here is downloadable and nothing here can be
+  // shown, so there is nothing for a tap to lead to.
+  for (const contentType of [
+    'image/svg+xml',
+    'image/tiff',
+    'image/heic',
+    'text/plain',
+    'text/html',
+    'application/zip',
+    'application/octet-stream',
+  ]) {
+    const tile = toTile(entry({ name: 'thing.x', path: 'thing.x', contentType }));
+    assert.equal(tile.href, null, `${contentType} must not link to /view/`);
+  }
+});
+
 test('toTile: files we cannot show inline stay plain labels', () => {
   const txt = toTile(entry({ name: 'welcome.txt', path: 'welcome.txt', contentType: 'text/plain' }));
   assert.equal(txt.href, null);

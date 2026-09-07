@@ -22,7 +22,11 @@ It is built for one person who does not want to learn Nextcloud:
 
 - **One passphrase, no username.** Each passphrase maps to a named viewer.
 - **Phone first.** Big buttons, one tap per step, a Back button on every page.
-- **Nothing downloads.** Images and PDFs open inline, in the page.
+- **Things open in the page.** Photos and PDFs render inline; a Word document is
+  converted server-side into readable text that reflows on a phone.
+- **Office files can be kept.** A Word, PowerPoint, Excel or OpenDocument file
+  — and a PDF — offers the original as a download, so anyone who wants the real
+  layout can open it in the app that made it. Nothing else is downloadable.
 - **It opens on what has changed.** A stream of recent changes, newest first,
   with anything since her last visit marked **New** — no hunting.
 - **Read-only by construction.** The Nextcloud client speaks only `PROPFIND`,
@@ -56,8 +60,9 @@ first, grouped by day, each row naming the folder it changed in. Rows newer than
 her *previous* visit carry a **New** badge — nothing is ever hidden by a
 timestamp, so a badge in the wrong place costs her a badge and not the list.
 **Latest / Files / Tasks** sits on every page, so any section is one tap away.
-Files open **in the page** — nothing is ever downloaded, and Back is reachable
-from everywhere.
+Files open **in the page**, and Back is reachable from everywhere. The only
+thing offered as a download is an office file or a PDF, on its own page, behind
+a button she has to press.
 
 <p align="center">
   <img src="docs/screenshots/folder.png" width="190" alt="A Lectures folder listing four files, each a large button with a real thumbnail or a file-type icon and its size.">
@@ -499,14 +504,14 @@ anywhere: `scripts/demo.js` starts the mock server from
 prints the URL and the passphrase. Every route, template and parser is the
 shipping one; only the address the WebDAV requests go to is different.
 
-You get a college student's Nextcloud: **Biology 101** (lecture PDFs, a lab
-photo, a reading list), **Math 210** (problem sets, a graph), an **Essays**
-folder, and two task lists — **School** (with a nested subtask, one overdue
-item and a couple already ticked off) and **Apartment**. It opens on **Latest**
-with a few days of changes already on it, the recent ones badged **New**: the
-demo seeds a sitting two days ago, and several files in the dataset are stamped
-inside that window, so the badges are there on the very first load instead of
-never (a brand-new viewer has nothing to compare against — see
+You get a college student's Nextcloud: **Biology 101** (lecture PDFs, a Word
+handout, a lab photo, a reading list), **Math 210** (problem sets, a graph), an
+**Essays** folder, and two task lists — **School** (with a nested subtask, one
+overdue item and a couple already ticked off) and **Apartment**. It opens on
+**Latest** with a few days of changes already on it, the recent ones badged
+**New**: the demo seeds a sitting two days ago, and several files in the dataset
+are stamped inside that window, so the badges are there on the very first load
+instead of never (a brand-new viewer has nothing to compare against — see
 `src/store/visits.js`).
 
 The dataset also seeds `Documents`, `Photos`, `Templates` and a few sample
@@ -562,6 +567,46 @@ Day offsets mean a calendar day; hour and minute offsets mean a time. Saying
 choked on, so a typo reads like `files."Biology 101".children."syllabus.pdf":
 asset "assets/nope.pdf" does not exist (looked in …)`.
 
+### How a Word document is converted, and why it is sandboxed
+
+A `.docx` never reaches the browser as itself. `src/lib/office.js` reads the
+bytes server-side with [`mammoth`](https://github.com/mwilliamson/mammoth.js)
+and renders reflowable HTML: headings, lists, tables, bold/italic and embedded
+pictures survive; exact page layout does not. That is the trade — a phone can
+show text that reflows, and the **Download the original** button on the same
+page is there for anyone who wants the real thing in Word. No LibreOffice, no
+Collabora, and no dependency on the Collabora container even where one exists.
+
+Anyone the owner shares a folder with can put a file in that folder, so a
+document arriving here is untrusted input and is treated as such:
+
+- **The conversion runs in a `worker_threads` Worker** with a 10-second wall
+  clock and a 256 MB heap ceiling, and the worker is *terminated* on timeout
+  rather than asked to stop. A zip bomb or a pathological document costs one
+  failed page, never the event loop that is also serving her photos.
+- **Files over 15 MB are not converted at all** (checked against `oc:size`
+  before a byte is fetched), and HTML over 6 MB is re-converted with the
+  pictures dropped — the page then says the pictures were left out.
+- **The HTML is re-serialized from an allow-list**, not filtered: `parse5`
+  builds the tree, `sanitizeHtml` writes a new document from it, and every text
+  node is escaped by us. Links must parse as `http`/`https`/`mailto`; images
+  must be `data:image/...;base64`, which is all our CSP allows anyway; `style`,
+  `class`, `id`, every `on*`, SVG, MathML, iframes and forms are never read.
+  That is what makes the single `| safe` in `src/views/view.njk` defensible —
+  and `test/unit/office.test.js` is mostly a list of hostile inputs.
+- **Sanitizing happens inside the worker too**, so the main thread never parses
+  attacker-controlled HTML.
+
+Anything that fails — too big, will not parse, timed out — is logged at `warn`
+and falls through to the calm "we can't show this one" page with the download
+button. It is never a 500.
+
+`GET /download/*` answers only for the types `src/lib/filetypes.js` marks
+downloadable (office files and PDFs) and 404s for everything else, so no file
+someone drops in a shared folder becomes newly reachable. It always sends
+`Content-Disposition: attachment`, which is what makes it safe to send the
+file's real MIME type: a browser saves an attachment rather than rendering it.
+
 ### Running against a real Nextcloud
 
 ```bash
@@ -589,7 +634,10 @@ so a run always starts from a cold cache and leaves nothing behind.
 
 The suites use the hand-written fixtures in `test/mock-nextcloud/tree.js` and
 `calendars.js`, which are deliberately full of awkward cases (unicode names, a
-scripted SVG, a recurring task completed as an override). The demo uses the
+scripted SVG, a recurring task completed as an override). The binary fixtures
+next to them — a padded two-page PDF, a PNG, a JPEG, a `.docx` and a `.xlsx` —
+are committed, and `test/mock-nextcloud/assets/generate.mjs` is how they were
+made and how to remake them. The demo uses the
 JSON loader instead — same mock, friendlier input. `npm test` covers both,
 including one test that boots the demo stack through the very same
 `startDemo()` the script calls, so a demo that has quietly stopped working
