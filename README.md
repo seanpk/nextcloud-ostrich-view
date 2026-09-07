@@ -373,6 +373,15 @@ cd ~/git-repos/nextcloud-ostrich-view && ./deploy.sh
    wall-clock deadline, then prints **PASS** (exit 0) or **FAIL** with the last
    50 lines of container output (exit 1).
 
+Static assets are **content-hashed**, so a deploy never serves a stale
+stylesheet. `/public/` is cached for a week in the browser (the HTML never is),
+and the `?v=` on every asset the pages link to is a short sha256 of the bytes
+under `public/` and `public/icons/`, computed at boot — so changing a stylesheet
+or a script changes its URL, and changing nothing leaves the cache alone. There
+is no version number to remember to bump; there used to be (`package.json`'s,
+which had not moved since the first commit), and a cache-busting token that
+never changes is not one. See `src/lib/asset-version.js`.
+
 `/healthz` does not touch Nextcloud, so a PASS means "the process booted and
 its configuration validated" — not "Nextcloud is reachable". That separation is
 deliberate; see §5.2. If the pages say "taking a break" or "needs attention"
