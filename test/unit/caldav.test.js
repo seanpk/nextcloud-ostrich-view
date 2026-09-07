@@ -253,6 +253,79 @@ test('parseTodoBlob: completion is recognised from STATUS, COMPLETED or 100%', (
   assert.equal(open.isCompleted, false);
 });
 
+/**
+ * The revision stamps the stream dates its rows by.
+ *
+ * The household's client (Nextcloud Tasks Android, probed 2026-09-07) writes
+ * DTSTAMP and nothing else -- no CREATED, no LAST-MODIFIED, no SEQUENCE -- so
+ * the fallback IS the normal case here, not the edge case.
+ */
+test('parseTodoBlob: reads CREATED and LAST-MODIFIED when the client keeps them', () => {
+  const [todo] = parseTodoBlob(
+    ics([
+      'UID:t',
+      'SUMMARY:Edited twice',
+      'CREATED:20250801T090000Z',
+      'LAST-MODIFIED:20250806T161500Z',
+      'DTSTAMP:20250806T161500Z',
+    ])
+  );
+
+  assert.equal(todo.createdAt.toISOString(), '2025-08-01T09:00:00.000Z');
+  // LAST-MODIFIED beats DTSTAMP: when a client keeps both, that is the one
+  // that means "revised", and DTSTAMP may only mean "sent".
+  assert.equal(todo.stampAt.toISOString(), '2025-08-06T16:15:00.000Z');
+});
+
+test('parseTodoBlob: with no CREATED and no LAST-MODIFIED, DTSTAMP is the stamp', () => {
+  const [todo] = parseTodoBlob(
+    ics(['UID:t', 'SUMMARY:As Android writes it', 'DTSTAMP:20250804T072000Z'])
+  );
+
+  // Which is why the stream needs a ledger of the UIDs it has seen: this task
+  // cannot say when it was created, only when it was last written.
+  assert.equal(todo.createdAt, null);
+  assert.equal(todo.stampAt.toISOString(), '2025-08-04T07:20:00.000Z');
+});
+
+test('parseTodoBlob: a task with no stamps at all reports none, rather than now', () => {
+  const [todo] = parseTodoBlob(ics(['UID:t', 'SUMMARY:Stampless']));
+
+  assert.equal(todo.createdAt, null);
+  assert.equal(todo.stampAt, null, 'guessing a stamp would date a row by the clock, not the data');
+});
+
+test('parseTodoBlob: completing a task leaves DTSTAMP on the COMPLETED instant', () => {
+  // Exactly what the real server does, and the reason the stream dedupes an
+  // Added and a Finished at the same moment into one row.
+  const [todo] = parseTodoBlob(
+    ics([
+      'UID:t',
+      'SUMMARY:Ticked off',
+      'DTSTAMP:20250807T093000Z',
+      'STATUS:COMPLETED',
+      'COMPLETED:20250807T093000Z',
+    ])
+  );
+
+  assert.equal(todo.stampAt.getTime(), todo.completedAt.getTime());
+});
+
+test('parseTodoBlob: a floating DUE is read in the household zone', () => {
+  // `DUE:20260909T130000` -- no zone, no Z. This is what the household's
+  // client writes for a task due at a time of day, and TZ (see .env.example)
+  // is what decides which instant it means.
+  const [todo] = parseTodoBlob(ics(['UID:t', 'SUMMARY:Floating', 'DUE:20260909T130000']));
+
+  assert.equal(todo.dueIsDate, false);
+  // TZ is America/New_York at the top of this file: 1pm local is 5pm UTC.
+  assert.equal(todo.due.toISOString(), '2026-09-09T17:00:00.000Z');
+  assert.equal(
+    formatDueLabel(todo.due, { isDate: false, now: new Date('2026-09-09T12:00:00') }),
+    'Due today at 1:00 PM'
+  );
+});
+
 test('parseTodoBlob: a summary-less or unparseable resource never throws', () => {
   assert.deepEqual(parseTodoBlob('not an ical file at all'), []);
   assert.deepEqual(parseTodoBlob(''), []);
@@ -270,12 +343,50 @@ test('parseCalendarQuery: pulls every VTODO out of a REPORT multistatus', () => 
   assert.ok(todos.some((t) => t.description?.includes('\n')));
 });
 
+test('parseCalendarQuery: every todo carries its resource ETag', () => {
+  const school = CALENDAR_FIXTURES.find((c) => c.uri === 'school-tasks');
+  const todos = parseCalendarQuery(
+    buildCalendarQueryMultistatus({ hrefRoot: HREF_ROOT, calendar: school })
+  );
+
+  assert.ok(
+    todos.every((t) => typeof t.etag === 'string' && t.etag !== ''),
+    'the REPORT asks for getetag, and the stream ledger compares it'
+  );
+  assert.equal(new Set(todos.map((t) => t.etag)).size, todos.length, 'one per resource');
+});
+
+test('parseCalendarQuery: an ETag is compared without its quoting or weak marker', () => {
+  // We never send it back, so the only question is "is this the string I
+  // stored last time" -- and a server free to re-quote or weaken it would
+  // otherwise fake a change, which reads as a "Changed" row about a task
+  // nobody touched.
+  const blob = ics(['UID:t', 'SUMMARY:Quoted']);
+  const xml = (etag) => `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>${HREF_ROOT}/chores/t.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>${etag}</d:getetag>
+        <cal:calendar-data>${blob.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</cal:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`;
+
+  assert.equal(parseCalendarQuery(xml('&quot;abc123&quot;'))[0].etag, 'abc123');
+  assert.equal(parseCalendarQuery(xml('W/&quot;abc123&quot;'))[0].etag, 'abc123');
+  assert.equal(parseCalendarQuery(xml('abc123'))[0].etag, 'abc123');
+});
+
 test('parseTodoBlob: a recurrence override is marked as one; a cancelled task is flagged', () => {
   const [master, override] = parseTodoBlob(RECURRING_TODO);
 
   assert.equal(master.recurrenceId, null);
   assert.equal(master.isCompleted, false);
-  assert.equal(override.recurrenceId.toISOString(), '2026-08-05T00:00:00.000Z');
+  assert.equal(override.recurrenceId.toISOString(), '2025-08-05T00:00:00.000Z');
   assert.equal(override.isCompleted, true);
 
   const [cancelled] = parseTodoBlob(ics(['UID:x', 'SUMMARY:Called off', 'STATUS:CANCELLED']));
@@ -296,7 +407,7 @@ test('parseCalendarQuery: a completed occurrence beats the master that shares it
 
   assert.equal(todos.length, 1, 'one component per UID, or the nesting map breaks');
   assert.equal(todos[0].isCompleted, true);
-  assert.equal(todos[0].completedAt.toISOString(), '2026-08-05T19:00:00.000Z');
+  assert.equal(todos[0].completedAt.toISOString(), '2025-08-05T19:00:00.000Z');
 });
 
 test('parseCalendarQuery: an occurrence still open leaves the master showing', () => {
@@ -494,7 +605,11 @@ test('buildTaskTree: a cancelled task is in neither section', () => {
   const titles = [...open, ...done].map((t) => t.summary);
   assert.ok(!titles.includes('Clear out the shed'), 'a called-off chore is not still to do');
   // ...and it did not sneak into "Done" either: nobody finished it.
-  assert.deepEqual(open.map((t) => t.summary), ['Take the bins out', 'Empty the dishwasher']);
+  assert.deepEqual(open.map((t) => t.summary), [
+    'Water the plants', // three days overdue, so soonest-first puts it top
+    'Take the bins out',
+    'Empty the dishwasher',
+  ]);
   assert.deepEqual(done.map((t) => t.summary), ['Vacuum the stairs', 'Put the recycling out']);
 });
 

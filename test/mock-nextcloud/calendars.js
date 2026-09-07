@@ -11,7 +11,18 @@
  *  - a recurring task whose latest occurrence was completed as an override, so
  *    master and override share one UID in one resource;
  *  - a cancelled task, which belongs in neither section of the page;
- *  - unicode summaries, a folded DESCRIPTION line, and escaped newlines.
+ *  - unicode summaries, a folded DESCRIPTION line, and escaped newlines;
+ *  - the revision stamps the stream dates its rows by, in all three shapes the
+ *    real server was found writing (see docs/plans/issue-3-tasks-in-stream.md
+ *    §1): DTSTAMP alone, DTSTAMP bumped to the COMPLETED instant, and -- from
+ *    a client that keeps them -- CREATED and LAST-MODIFIED as well;
+ *  - a floating DUE (`DUE:20260909T130000`, no zone), which is what Nextcloud
+ *    Tasks Android writes for a task due at a time of day.
+ *
+ * STAMPS SIT IN THE SAME WEEK AS THE FILE FIXTURES (tree.js: 4-7 Aug 2025), so
+ * the stream's task rows genuinely interleave with its file rows instead of
+ * every task landing above every file. Due dates are relative to now -- see
+ * `ymdOffset` -- because those ARE read against today's date.
  */
 
 /** Join VTODO lines the way a server does, CRLF and all. */
@@ -23,16 +34,21 @@ function ics(lines) {
  * One resource holding several VTODOs -- how a recurring task and its
  * recurrence overrides actually arrive, all under a single UID.
  *
+ * Each component gets `DEFAULT_DTSTAMP` unless its own lines carry a DTSTAMP:
+ * every VTODO on the real server has one (it is the only revision stamp that
+ * client writes), and the stream dates its rows by it, so a fixture that wants
+ * to say WHEN a task was written says so in its own lines.
+ *
  * @param {Array<string[]>} components lines for each VTODO
  */
 function icsResource(components) {
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Nextcloud/Tasks//EN',
+    'PRODID:-//Nextcloud Tasks Android//EN',
     ...components.flatMap((lines) => [
       'BEGIN:VTODO',
-      'DTSTAMP:20260808T101500Z',
+      ...(lines.some((line) => line.startsWith('DTSTAMP')) ? [] : [`DTSTAMP:${DEFAULT_DTSTAMP}`]),
       ...lines,
       'END:VTODO',
     ]),
@@ -42,6 +58,13 @@ function icsResource(components) {
 }
 
 /**
+ * The stamp a fixture gets when it says nothing: the morning after the newest
+ * file in tree.js, so an unspecified task is simply the most recent thing that
+ * happened.
+ */
+const DEFAULT_DTSTAMP = '20250808T101500Z';
+
+/**
  * A weekly chore whose most recent occurrence has been ticked off: the master
  * is still NEEDS-ACTION forever, and only the COMPLETED override says it was
  * done. Reading the master alone would show it as still to do.
@@ -49,18 +72,23 @@ function icsResource(components) {
 export const RECURRING_TODO = icsResource([
   [
     'UID:chore-recycling',
+    'DTSTAMP:20250805T190000Z',
     'SUMMARY:Put the recycling out',
-    'DUE;VALUE=DATE:20260805',
+    'DUE;VALUE=DATE:20250805',
     'RRULE:FREQ=WEEKLY;BYDAY=WE',
     'STATUS:NEEDS-ACTION',
   ],
   [
     'UID:chore-recycling',
-    'RECURRENCE-ID;VALUE=DATE:20260805',
+    // Ticking a task off rewrites DTSTAMP to the COMPLETED instant -- that is
+    // what the real server does, and the reason the stream dedupes the two
+    // (see ../../src/lib/stream-tasks.js).
+    'DTSTAMP:20250805T190000Z',
+    'RECURRENCE-ID;VALUE=DATE:20250805',
     'SUMMARY:Put the recycling out',
-    'DUE;VALUE=DATE:20260805',
+    'DUE;VALUE=DATE:20250805',
     'STATUS:COMPLETED',
-    'COMPLETED:20260805T190000Z',
+    'COMPLETED:20250805T190000Z',
     'PERCENT-COMPLETE:100',
   ],
 ]);
@@ -82,10 +110,20 @@ function ymdOffset(days) {
 export const ESSAY_DUE_YMD = ymdOffset(10);
 const SAMPLES_DUE_YMD = ymdOffset(16);
 const LAB_DUE_YMD = ymdOffset(18);
+/** Due the day after tomorrow, and three days overdue: both sides of Today. */
+export const BINS_DUE_YMD = ymdOffset(2);
+export const PLANTS_DUE_YMD = ymdOffset(-3);
+const SHED_DUE_YMD = ymdOffset(5);
 
 const SCHOOL_TODOS = [
   ics([
     'UID:task-essay',
+    // The one fixture written by a client that keeps a full history: CREATED
+    // and LAST-MODIFIED as well as DTSTAMP, which is what the stream prefers
+    // when it is there. The household's own client writes none of it.
+    'CREATED:20250801T090000Z',
+    'LAST-MODIFIED:20250806T161500Z',
+    'DTSTAMP:20250806T161500Z',
     'SUMMARY:Write the Café history essay — 日本語 sources',
     // Folded continuation line (leading space) plus escaped newlines: both are
     // things a naive line-by-line parser gets wrong.
@@ -98,12 +136,14 @@ const SCHOOL_TODOS = [
   ]),
   ics([
     'UID:task-lab',
+    'DTSTAMP:20250805T113000Z',
     'SUMMARY:Biology lab report',
     `DUE:${LAB_DUE_YMD}T210000Z`,
     'STATUS:NEEDS-ACTION',
   ]),
   ics([
     'UID:task-lab-samples',
+    'DTSTAMP:20250805T113500Z',
     'SUMMARY:Collect pond samples',
     `DUE;VALUE=DATE:${SAMPLES_DUE_YMD}`,
     'RELATED-TO;RELTYPE=PARENT:task-lab',
@@ -111,14 +151,21 @@ const SCHOOL_TODOS = [
   ]),
   ics([
     'UID:task-lab-graphs',
+    'DTSTAMP:20250807T190000Z',
     'SUMMARY:Draw the graphs',
     // No RELTYPE: PARENT is the RFC 5545 default and what Nextcloud writes.
     'RELATED-TO:task-lab',
     'STATUS:NEEDS-ACTION',
   ]),
-  ics(['UID:task-read', 'SUMMARY:Read chapter 4', 'STATUS:NEEDS-ACTION']),
+  ics([
+    'UID:task-read',
+    'DTSTAMP:20250803T204500Z',
+    'SUMMARY:Read chapter 4',
+    'STATUS:NEEDS-ACTION',
+  ]),
   ics([
     'UID:task-orphan',
+    'DTSTAMP:20250802T101500Z',
     'SUMMARY:Return the library book',
     // Parent was deleted (or never shared): must still render, top level.
     'RELATED-TO;RELTYPE=PARENT:task-deleted-long-ago',
@@ -127,57 +174,77 @@ const SCHOOL_TODOS = [
   // --- finished, stored oldest-first so the sort has something to do ---
   ics([
     'UID:task-slip',
+    'DTSTAMP:20250801T120000Z',
     'SUMMARY:Hand in the permission slip',
     'STATUS:COMPLETED',
-    'COMPLETED:20260801T120000Z',
+    'COMPLETED:20250801T120000Z',
     'PERCENT-COMPLETE:100',
   ]),
   ics([
     'UID:task-notebook',
+    'DTSTAMP:20250807T093000Z',
     'SUMMARY:Buy a lab notebook',
     'STATUS:COMPLETED',
-    'COMPLETED:20260807T093000Z',
+    'COMPLETED:20250807T093000Z',
     'PERCENT-COMPLETE:100',
   ]),
   ics([
     'UID:task-email',
+    'DTSTAMP:20250804T081500Z',
     'SUMMARY:Email Professor Ruiz',
     'STATUS:COMPLETED',
-    'COMPLETED:20260804T081500Z',
+    'COMPLETED:20250804T081500Z',
     'PERCENT-COMPLETE:100',
   ]),
   ics([
     // A finished subtask of an unfinished parent: it belongs in "Done", where
     // she will see it, not hidden under a task that is still open.
     'UID:task-lab-manual',
+    'CREATED:20250803T080000Z',
+    'LAST-MODIFIED:20250806T140000Z',
+    'DTSTAMP:20250806T140000Z',
     'SUMMARY:Borrow the lab manual',
     'RELATED-TO;RELTYPE=PARENT:task-lab',
     'STATUS:COMPLETED',
-    'COMPLETED:20260806T140000Z',
+    'COMPLETED:20250806T140000Z',
   ]),
 ];
 
 const CHORE_TODOS = [
   ics([
+    // Three days late, and due at a time of day written as a FLOATING local
+    // time -- no zone, no Z. That is what Nextcloud Tasks Android writes, and
+    // it is read in the process zone (the household's), so a fixture with one
+    // is the only way the tests see what the household sees.
+    'UID:chore-plants',
+    'DTSTAMP:20250806T090000Z',
+    'SUMMARY:Water the plants',
+    `DUE:${PLANTS_DUE_YMD}T130000`,
+    'STATUS:NEEDS-ACTION',
+  ]),
+  ics([
     'UID:chore-bins',
+    'DTSTAMP:20250804T072000Z',
     'SUMMARY:Take the bins out',
-    'DUE;VALUE=DATE:20260810',
+    `DUE;VALUE=DATE:${BINS_DUE_YMD}`,
     'STATUS:NEEDS-ACTION',
   ]),
   ics(['UID:chore-dishes', 'SUMMARY:Empty the dishwasher', 'STATUS:NEEDS-ACTION']),
   ics([
-    // Called off, not finished: it belongs in neither section.
+    // Called off, not finished: it belongs in neither section -- and, dated
+    // ahead of today, it must not appear above the Today line either.
     'UID:chore-shed',
     'SUMMARY:Clear out the shed',
-    'DUE;VALUE=DATE:20260811',
+    `DUE;VALUE=DATE:${SHED_DUE_YMD}`,
     'STATUS:CANCELLED',
   ]),
   RECURRING_TODO,
   ics([
     'UID:chore-vacuum',
+    'DTSTAMP:20250807T170000Z',
     'SUMMARY:Vacuum the stairs',
     'STATUS:COMPLETED',
-    'COMPLETED:20260808T170000Z',
+    'COMPLETED:20250807T170000Z',
   ]),
 ];
 
@@ -304,6 +371,26 @@ ${parts.join('\n')}
 `;
 }
 
+/**
+ * An ETag for one resource, derived from its bytes.
+ *
+ * A version marker, not a name: the stream's ledger asks "has this resource
+ * changed since I last saw it" and nothing else (see
+ * ../../src/store/tasks-seen.js), so an etag keyed on the calendar and the
+ * task's position would answer "no" to an edited task and "yes" to a
+ * reordered one -- both backwards. Hashing the blob is what a real server's
+ * etag behaves like, and it is what lets a test edit a fixture and watch the
+ * app notice.
+ */
+function fakeEtag(blob) {
+  let hash = 2166136261;
+  for (let i = 0; i < blob.length; i += 1) {
+    hash ^= blob.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 /** One response per VTODO resource, as a real calendar-query REPORT returns. */
 export function buildCalendarQueryMultistatus({ hrefRoot, calendar }) {
   const parts = calendar.todos.map((blob, index) => {
@@ -312,7 +399,7 @@ export function buildCalendarQueryMultistatus({ hrefRoot, calendar }) {
       <d:href>${xmlEscape(`${hrefRoot}/${encodeHref(calendar.uri)}/${encodeHref(uid)}.ics`)}</d:href>
       <d:propstat>
         <d:prop>
-          <d:getetag>&quot;etag-${index}&quot;</d:getetag>
+          <d:getetag>&quot;${fakeEtag(blob)}&quot;</d:getetag>
           <cal:calendar-data>${xmlEscape(blob)}</cal:calendar-data>
         </d:prop>
         <d:status>HTTP/1.1 200 OK</d:status>
@@ -332,10 +419,19 @@ ${parts.join('\n')}
  *
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
- * @param {{ pathname: string, hrefRoot: string, calendars?: Array<object> }} options
+ * @param {{ pathname: string, hrefRoot: string, calendars?: Array<object>,
+ *           failCalendar?: string|null }} options
+ *   failCalendar: the `uri` of one calendar whose REPORT answers 500. One list
+ *   failing while the others answer is the case the stream's task half is
+ *   best-effort FOR (see ../../src/routes/stream.js), and it cannot be
+ *   simulated by taking the whole server away.
  * @returns {boolean} true if the request was handled here
  */
-export function handleCalendarRequest(req, res, { pathname, hrefRoot, calendars = CALENDAR_FIXTURES }) {
+export function handleCalendarRequest(
+  req,
+  res,
+  { pathname, hrefRoot, calendars = CALENDAR_FIXTURES, failCalendar = null }
+) {
   const normalized = pathname.replace(/\/+$/, '');
   const root = hrefRoot.replace(/\/+$/, '');
 
@@ -363,6 +459,13 @@ export function handleCalendarRequest(req, res, { pathname, hrefRoot, calendars 
   }
 
   if (req.method === 'REPORT') {
+    if (failCalendar !== null && calendar.uri === failCalendar) {
+      // A list that is there, listed, and will not be read: a Nextcloud
+      // mid-upgrade, a broken share, a calendar Sabre trips over.
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Sabre\\DAV\\Exception: something went wrong reading that calendar');
+      return true;
+    }
     const xml = buildCalendarQueryMultistatus({ hrefRoot: root, calendar });
     res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
     res.end(xml);

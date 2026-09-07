@@ -248,7 +248,11 @@ const MAX_BODY_BYTES = 64 * 1024;
 /**
  * @param {{ tree?: object, calendars?: Array<object>, user?: string, password?: string,
  *           searchStatus?: number|null, shareProps?: boolean,
- *           pdfPreviews?: boolean }} [options]
+ *           pdfPreviews?: boolean, failCalendar?: string|null }} [options]
+ *   failCalendar: the `uri` of one calendar whose `REPORT` answers 500. A
+ *   listed list that cannot be read is the case the stream's per-list
+ *   best-effort exists for, and the only honest way to test it: a page with
+ *   files and three of four lists beats no page at all.
  *   searchStatus: answer every SEARCH with this status instead of running it.
  *   405 is what a Nextcloud without the search backend sends, and is the case
  *   the app's walk fallback exists for.
@@ -267,10 +271,14 @@ const MAX_BODY_BYTES = 64 * 1024;
  */
 export function createMockNextcloud(options = {}) {
   let tree = options.tree ?? DEFAULT_TREE;
-  const calendars = options.calendars ?? CALENDAR_FIXTURES;
+  let calendars = options.calendars ?? CALENDAR_FIXTURES;
   const user = options.user ?? TEST_USER;
   const password = options.password ?? TEST_APP_PASSWORD;
   let searchStatus = options.searchStatus ?? null;
+  // The `uri` of one calendar whose REPORT answers 500 -- one shared list
+  // unreadable while the rest are fine, which is what the stream's task half
+  // is best-effort for.
+  let failCalendar = options.failCalendar ?? null;
   let shareProps = options.shareProps ?? true;
   // What the OCS Share API reports as shared WITH this account.
   //   undefined -> derived from the tree: every top-level node carrying
@@ -315,7 +323,12 @@ export function createMockNextcloud(options = {}) {
     // M3: the calendar home answers PROPFIND and REPORT (see calendars.js).
     const calendarRoot = `/remote.php/dav/calendars/${user}`;
     if (pathname === calendarRoot || pathname.startsWith(`${calendarRoot}/`)) {
-      handleCalendarRequest(req, res, { pathname, hrefRoot: calendarRoot, calendars });
+      handleCalendarRequest(req, res, {
+        pathname,
+        hrefRoot: calendarRoot,
+        calendars,
+        failCalendar,
+      });
       return;
     }
 
@@ -663,6 +676,21 @@ export function createMockNextcloud(options = {}) {
      */
     setSearchStatus(next) {
       searchStatus = next ?? null;
+    },
+    /**
+     * Swap the calendar fixtures mid-run: how a test plays "the owner edited a
+     * task" (a resource's bytes change, so its etag moves) or "a list was
+     * unshared" without restarting the server.
+     */
+    setCalendars(next) {
+      calendars = next ?? CALENDAR_FIXTURES;
+    },
+    /**
+     * Make one list's REPORT fail (by `uri`), or `null` to fix it again --
+     * "she reloads and the list is back" is half of what best-effort means.
+     */
+    setFailCalendar(next) {
+      failCalendar = next ?? null;
     },
     /** false simulates a Nextcloud with no oc:permissions/oc:owner-id at all. */
     setShareProps(next) {
