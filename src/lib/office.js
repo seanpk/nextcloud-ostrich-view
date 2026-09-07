@@ -238,6 +238,7 @@ const DROP_SUBTREE = new Set([
   'title',
   'textarea',
   'xmp',
+  'plaintext',
   'svg',
   'math',
   'head',

@@ -138,6 +138,7 @@ test('sanitizeHtml: the classic mXSS shapes come out as text, not as markup', ()
     '<noscript><p title="</noscript><img src=x onerror=alert(1)>">',
     '<noembed><img src=x onerror=alert(1)></noembed>',
     '<xmp><img src=x onerror=alert(1)></xmp>',
+    '<plaintext><img src=x onerror=alert(1)>',
     '<template><img src=x onerror=alert(1)></template>',
     '<!--<img src=x onerror=alert(1)>-->',
     '<p title="</p><script>alert(1)</script>">hello</p>',
