@@ -423,7 +423,9 @@ export default async function registerMediaRoutes(app) {
     // Three answers, in order of how much of the file she gets to see: the
     // browser paints it, we convert it, or we say so calmly.
     let mode = rendersInline(entry) ? kind : convertsInline(entry) ? 'docx' : 'unsupported';
-    let document = null;
+    // Named for what it is rather than `document`, which in a file this close
+    // to the browser reads like the DOM global.
+    let rendered = null;
 
     if (mode === 'docx') {
       try {
@@ -432,7 +434,7 @@ export default async function registerMediaRoutes(app) {
         }
         // The cache key is the version, not the path: an edited document is a
         // new etag and therefore a new entry, so a stale render is impossible.
-        document = await documents.get(`${entry.fileId}-${entry.etag}`, async () => {
+        rendered = await documents.get(`${entry.fileId}-${entry.etag}`, async () => {
           const bytes = await readWholeFile(app, path, { maxBytes: MAX_DOCX_BYTES });
           return renderDocx(bytes);
         });
@@ -464,8 +466,8 @@ export default async function registerMediaRoutes(app) {
       downloadHref,
       // Sanitized by src/lib/office.js and by nothing else -- this is the one
       // value in the app the templates render with `| safe`.
-      documentHtml: document?.html ?? null,
-      imagesDropped: Boolean(document?.imagesDropped),
+      documentHtml: rendered?.html ?? null,
+      imagesDropped: Boolean(rendered?.imagesDropped),
       icon: ICONS[kind] ?? ICONS.file,
       showBack: true,
       backHref,
