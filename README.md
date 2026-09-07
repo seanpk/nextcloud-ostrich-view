@@ -27,8 +27,10 @@ It is built for one person who does not want to learn Nextcloud:
 - **Office files can be kept.** A Word, PowerPoint, Excel or OpenDocument file
   — and a PDF — offers the original as a download, so anyone who wants the real
   layout can open it in the app that made it. Nothing else is downloadable.
-- **It opens on what has changed.** A stream of recent changes, newest first,
-  with anything since her last visit marked **New** — no hunting.
+- **It opens on what has changed, and what is coming.** One time axis: the
+  tasks that are due (overdue ones in red) above a **Today** line, and the
+  recent history of files and task changes below it, newest first, with
+  anything since her last visit marked **New** — no hunting.
 - **Read-only by construction.** The Nextcloud client speaks only `PROPFIND`,
   `SEARCH`, `REPORT` and `GET`; the app registers only `GET` routes plus the
   login/logout `POST`s. The viewer account's app password never reaches the
@@ -47,7 +49,7 @@ Every shot below is a phone-sized capture of `npm run demo` — the real app, th
 real templates, reading `demo/dataset.json` instead of a Nextcloud.
 
 <p align="center">
-  <img src="docs/screenshots/stream.png" width="190" alt="The Latest page: 'You were last here on Sat, Sep 5', then rows grouped under Today and Yesterday — each a file name, the folder it lives in, the time, and a New badge on the ones since her last visit.">
+  <img src="docs/screenshots/stream.png" width="190" alt="The Latest page: two overdue tasks in red under an Overdue heading, a line reading 'Also 3 tasks without a due date', then the Today divider and rows of files and task changes with New badges on the ones since her last visit.">
   <img src="docs/screenshots/files.png" width="190" alt="The Files page: big Biology 101, Essays and Math 210 folder buttons under a Latest / Files / Tasks toggle.">
   <img src="docs/screenshots/pdf.png" width="190" alt="A PDF rendered inline on the page, with the Back button still reachable at the top.">
   <img src="docs/screenshots/tasks.png" width="190" alt="The School task list: an overdue item in red, then a task with its due date, note, priority and percent-done.">
@@ -55,10 +57,26 @@ real templates, reading `demo/dataset.json` instead of a Nextcloud.
 
 <p align="center"><em>Latest · Files · a PDF, open in the page · a task list</em></p>
 
-**Latest** is the page she lands on, and the headline: what has changed, newest
-first, grouped by day, each row naming the folder it changed in. Rows newer than
-her *previous* visit carry a **New** badge — nothing is ever hidden by a
-timestamp, so a badge in the wrong place costs her a badge and not the list.
+**Latest** is the page she lands on, and the headline. It is one time axis, and
+she arrives on the **Today** line in the middle of it: above the line, the tasks
+that are coming up — furthest away at the top, the soonest just above the line,
+and anything late in red right against it, with a counted line for the tasks
+that carry no due date at all. Below the line, what has happened: files and task
+changes together, newest first, grouped by day, each row naming the folder it
+changed in or the task list it belongs to. Tapping a task row opens its list,
+which is the only place a task is shown in full.
+
+Rows newer than her *previous* visit carry a **New** badge — nothing is ever
+hidden by a timestamp, so a badge in the wrong place costs her a badge and not
+the list. A task row says **Added**, **Finished** or **Changed**: *changed*
+means the task was edited after it appeared — renamed, re-dated, a note added —
+and since the app only ever reads, it cannot say what was edited, only that
+something was. **Tasks that are deleted are not shown at all**: a task list
+tells us what exists, never what used to, so a deletion is indistinguishable
+from a list being unshared or a lookup that failed. If the task side cannot be
+read, the file history is still there and a quiet line says tasks couldn't be
+checked; the page never fails because of tasks.
+
 **Latest / Files / Tasks** sits on every page, so any section is one tap away.
 Files open **in the page**, and Back is reachable from everywhere. The only
 thing offered as a download is an office file or a PDF, on its own page, behind
@@ -371,6 +389,13 @@ back across the tunnel.
   what the stream's **New** badges are measured against. Deleting it resets
   everyone's baseline to now, so nothing is badged until something changes; the
   stream itself is unaffected, because it never hides a row.
+- `tasks-seen.json` — which task UIDs this app has already met, so it can tell a
+  newly shared task from one that has been on the list all term. A shared VTODO
+  carries no reliable "created" date (the Tasks Android app writes none), so
+  remembering is the only way "Added" can be honest. It is one file for the
+  household, not one per viewer, and deleting it only costs a burst of **Added**
+  rows dated by the tasks' own timestamps. Entries for tasks nobody has seen for
+  90 days are dropped on the next write.
 
 Both survive `docker compose restart`, rebuilds and reboots. `./config` is
 mounted read-only; the container cannot rewrite its own auth config.
@@ -507,12 +532,15 @@ shipping one; only the address the WebDAV requests go to is different.
 You get a college student's Nextcloud: **Biology 101** (lecture PDFs, a Word
 handout, a lab photo, a reading list), **Math 210** (problem sets, a graph), an
 **Essays** folder, and two task lists — **School** (with a nested subtask, one
-overdue item and a couple already ticked off) and **Apartment**. It opens on
+overdue item and a couple already ticked off) and **Apartment** (with an overdue
+one of its own). It opens on
 **Latest** with a few days of changes already on it, the recent ones badged
 **New**: the demo seeds a sitting two days ago, and several files in the dataset
 are stamped inside that window, so the badges are there on the very first load
 instead of never (a brand-new viewer has nothing to compare against — see
-`src/store/visits.js`).
+`src/store/visits.js`). The dataset's due dates sit on both sides of today, so
+the Today line has tasks coming up above it — one of them overdue — and the
+history below it.
 
 The dataset also seeds `Documents`, `Photos`, `Templates` and a few sample
 files — exactly the skeleton content a freshly created Nextcloud account gets

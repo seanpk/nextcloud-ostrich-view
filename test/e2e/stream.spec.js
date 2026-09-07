@@ -226,7 +226,7 @@ test.describe('Latest', () => {
 
     // It says what happened, which list it happened in, and what time.
     await expect(manual.locator('.stream__what')).toHaveText('Finished');
-    await expect(manual.locator('.stream__list')).toHaveText('School Tasks');
+    await expect(manual.locator('.stream__list-name')).toHaveText('School Tasks');
     await expect(manual.locator('.stream__time')).toHaveText(/^\d{1,2}:\d{2} (AM|PM)$/);
     // And tapping it opens the list, the only place a task is shown in full.
     await manual.locator('a').click();
@@ -414,12 +414,12 @@ test.describe('When a task list is broken', () => {
     // The files are all there, and so is the list that works.
     await expect(page.locator('.stream__item', { hasText: 'microscope.jpg' })).toBeVisible();
     await expect(
-      page.locator('.stream__list', { hasText: 'School Tasks' }).first()
+      page.locator('.stream__list-name', { hasText: 'School Tasks' }).first()
     ).toBeVisible();
 
     // The broken one is simply absent -- no error page, no half-rendered row.
     await expect(page.getByText('Take the bins out')).toHaveCount(0);
-    await expect(page.locator('.stream__list', { hasText: 'Chores' })).toHaveCount(0);
+    await expect(page.locator('.stream__list-name', { hasText: 'Chores' })).toHaveCount(0);
     // And no caveat line: we know which lists exist, and all but one answered.
     await expect(page.getByText('Tasks couldn’t be checked')).toHaveCount(0);
   });

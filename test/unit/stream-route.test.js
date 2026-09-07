@@ -261,7 +261,7 @@ test('stream: a finished task sits among the file rows, in time order', async ()
   assert.ok(manual < week1, 'and the task after the earlier notes');
   // Each task row says what happened and which list it happened in.
   assert.ok(rowLabels(response.body).includes('Finished'));
-  assert.match(response.body, /<span class="stream__list [^"]*">School Tasks<\/span>/);
+  assert.match(response.body, /<span class="stream__list-name [^"]*">School Tasks<\/span>/);
   assert.match(response.body, /href="\/tasks\/school-tasks"/);
 });
 

@@ -98,7 +98,9 @@
         <span class="stream__where">
           {# "Finished" below the line, "Was due yesterday" above it. #}
           <span class="stream__what">{{ item.label if item.label else item.dueLabel }}</span>
-          <span class="stream__list {{ item.task.accentClass }}">{{ item.task.name }}</span>
+          {# `stream__list-name`, not `stream__list`: that one is the <ul> of rows,
+             and a span wearing it inherits `display: grid`. #}
+          <span class="stream__list-name {{ item.task.accentClass }}">{{ item.task.name }}</span>
         </span>
       </span>
 

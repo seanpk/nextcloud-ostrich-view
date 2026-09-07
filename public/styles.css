@@ -1431,8 +1431,12 @@ a.stream__row:focus-visible {
  * contrast against white, and a name in a pale accent would be the one
  * unreadable thing on the page. The class comes from `accentClassFor` and sets
  * --tile-accent; a list with no colour falls back to the app's accent.
+ *
+ * `--name` matters: `.stream__list` is the <ul> that holds a day's rows, and a
+ * span sharing that class inherits its `display: grid` -- which put the dot on
+ * one line and the list's name on the next.
  */
-.stream__list::before {
+.stream__list-name::before {
   content: '';
   display: inline-block;
   width: 0.55rem;
