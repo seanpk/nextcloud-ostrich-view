@@ -6,7 +6,8 @@
 
   ONE TIME AXIS, read downwards. `future` is what is coming: the open tasks'
   due dates in day groups, furthest away at the top, everything late in one
-  "Overdue" group at the bottom of the block. Then the Today line, which always
+  "Overdue" group at the bottom of the block, and then the twisty holding the
+  open tasks that have no due date at all. Then the Today line, which always
   exists (empty on a quiet day) and carries the `#today` anchor the toggle and
   the login redirect both point at. Then `days`: what has happened, newest
   first, files and task changes interleaved by time alone.
@@ -53,12 +54,40 @@
     {% endfor %}
 
     {#
-      Tasks with no due date have nowhere on a time axis to be, so they get one
-      line instead -- immediately above the Today line, where the block above it
-      ends. It links to Tasks, which is where they can actually be read.
+      Tasks with no due date have nowhere on a time axis to be, so they get a
+      twisty instead -- immediately above the Today line, where the block above
+      it ends, closed until she asks.
+
+      SHOWN HERE RATHER THAN LINKED TO. This line used to be a link to /tasks,
+      and that was the wrong answer: Latest is already the cross-list view --
+      every dated open task is above the line and every finished one is in the
+      history below it -- so the undated bucket was the one thing on the page
+      she had to leave the page to read, and what she arrived at was a grid of
+      list buttons rather than the four chores she was after. Now the count is
+      the summary and the tasks themselves are the body. Files and Tasks remain
+      the places for browsing by structure.
+
+      A <details>, so it costs no JavaScript: the disclosure works with
+      scripting off, the same way the #today anchor does. Closed by default,
+      because the axis is what this page is and a block of dateless rows above
+      the line would push it down; opening it inserts rows above the line and
+      moves nothing else.
+
+      The rows are ordinary task rows (`task_item`), so a task reads the same
+      here as it does anywhere else on the page -- same icon, same list name in
+      the list's own colour, same tap that opens its list. The muted second line
+      says "No due date" where a due row says "Due Tuesday", which is the only
+      difference there is.
     #}
-    {% if undatedLabel %}
-      <p class="stream__undated"><a href="/tasks">{{ undatedLabel }}</a></p>
+    {% if undated %}
+      <details class="stream__undated">
+        <summary>{{ undated.label }}</summary>
+        <ul class="stream__list stream__list--undated">
+          {% for item in undated.rows %}
+            {{ s.task_item(item) }}
+          {% endfor %}
+        </ul>
+      </details>
     {% endif %}
 
     {#

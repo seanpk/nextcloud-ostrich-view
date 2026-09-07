@@ -69,11 +69,15 @@
 {#
   One task row: what happened to it (or when it is due), and which list it is in.
 
-  Four kinds share this macro, because they are four sentences about the same
+  Five kinds share this macro, because they are five sentences about the same
   thing and a reader scanning the page should not have to learn two row shapes:
   `task-added`, `task-finished` and `task-changed` sit in the history below the
   Today line with the time on the right; `task-due` sits above the line, where
-  the "when" is the due date itself and there is no clock time to show.
+  the "when" is the due date itself and there is no clock time to show; and
+  `task-undated` sits in the twisty on the line, wearing the same calendar icon
+  as a due row and saying "No due date" where the due row names a day -- because
+  the absence of a date is the fact about it, and a blank second line would read
+  as a row that failed to load.
 
   Every row is a link to the task's LIST (`/tasks/<slug>`), which is the only
   page in this app that shows a task in full. The icon is decoration -- the

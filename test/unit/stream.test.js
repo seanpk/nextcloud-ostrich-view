@@ -397,25 +397,131 @@ test('buildTimeline: a due date next year is named with its year', () => {
 });
 
 test('buildTimeline: with nothing coming up, there is no block above the line', () => {
-  const { future, undatedLabel, moreUpcomingLabel } = buildTimeline({
+  const { future, undated, moreUpcomingLabel } = buildTimeline({
     upcoming: [],
     history: buildStream([event('2026-08-09T09:00:00')], { now: NOW }),
     now: NOW,
   });
 
   assert.deepEqual(future, []);
-  assert.equal(undatedLabel, null);
+  assert.equal(undated, null);
   assert.equal(moreUpcomingLabel, null);
 });
 
-test('buildTimeline: the undated line is counted out loud, and pluralized', () => {
-  const timeline = (undatedCount) =>
-    buildTimeline({ history: buildStream([], { now: NOW }), undatedCount, now: NOW }).undatedLabel;
+// --- the twisty above the line ---------------------------------------------
 
-  assert.equal(timeline(1), 'Also 1 task without a due date');
-  assert.equal(timeline(17), 'Also 17 tasks without a due date');
-  // Nothing to say, so nothing is said -- not "Also 0 tasks".
-  assert.equal(timeline(0), null);
+/** A row as `undatedTasks` hands it over. */
+function undatedRow(summary, extra = {}) {
+  return {
+    kind: 'task-undated',
+    dueLabel: 'No due date',
+    task: { name: 'School Tasks', summary, slug: 'school-tasks', href: '/tasks/school-tasks' },
+    ...extra,
+  };
+}
+
+test('buildTimeline: the twisty is counted out loud, and pluralized', () => {
+  const label = (count) =>
+    buildTimeline({
+      history: buildStream([], { now: NOW }),
+      undated: Array.from({ length: count }, (_, i) => undatedRow(`Task ${i}`)),
+      now: NOW,
+    }).undated?.label ?? null;
+
+  assert.equal(label(1), 'Also 1 task without a due date');
+  assert.equal(label(17), 'Also 17 tasks without a due date');
+  // Nothing to say, so nothing is said -- not "Also 0 tasks", and no lid over
+  // an empty box.
+  assert.equal(label(0), null);
+});
+
+test('buildTimeline: the twisty holds the rows it was given, in the order given', () => {
+  const rows = [undatedRow('Empty the dishwasher'), undatedRow('Read chapter 4')];
+
+  const { undated } = buildTimeline({
+    history: buildStream([], { now: NOW }),
+    undated: rows,
+    now: NOW,
+  });
+
+  assert.deepEqual(
+    undated.rows.map((row) => row.task.summary),
+    ['Empty the dishwasher', 'Read chapter 4'],
+    'ordering is `sortUndated`\'s job, not this one\'s'
+  );
+  assert.equal(undated.rows[0].dueLabel, 'No due date');
+});
+
+test('buildTimeline: a twisty row is badged when its Added row below the line is', () => {
+  // The badge rule reads `at`, which an undated row has not got -- so the
+  // twisty borrows the answer the history already came to, matched by list and
+  // UID rather than by name.
+  const added = (uid, summary, iso, slug = 'school-tasks') => ({
+    kind: 'task-added',
+    at: at(iso),
+    label: 'Added',
+    task: { name: 'School Tasks', summary, slug, uid, href: `/tasks/${slug}` },
+  });
+
+  const history = buildStream(
+    [
+      added('uid-new', 'Turned up today', '2026-08-09T09:00:00'),
+      added('uid-old', 'Been there for weeks', '2026-07-01T09:00:00'),
+    ],
+    { previousVisitAt: at('2026-08-08T20:00:00'), now: NOW }
+  );
+
+  const { undated } = buildTimeline({
+    history,
+    undated: [
+      undatedRow('Turned up today', {
+        task: { name: 'School Tasks', summary: 'Turned up today', slug: 'school-tasks', uid: 'uid-new', href: '/tasks/school-tasks' },
+      }),
+      undatedRow('Been there for weeks', {
+        task: { name: 'School Tasks', summary: 'Been there for weeks', slug: 'school-tasks', uid: 'uid-old', href: '/tasks/school-tasks' },
+      }),
+      // Same summary, different list: it must not catch the other one's badge.
+      undatedRow('Turned up today', {
+        task: { name: 'Chores', summary: 'Turned up today', slug: 'chores', uid: 'uid-new', href: '/tasks/chores' },
+      }),
+    ],
+    now: NOW,
+  });
+
+  assert.deepEqual(
+    undated.rows.map((row) => [row.task.slug, row.isNew]),
+    [
+      ['school-tasks', true],
+      ['school-tasks', false],
+      ['chores', false],
+    ]
+  );
+});
+
+test('buildTimeline: with no previous sitting, nothing in the twisty is badged', () => {
+  const history = buildStream(
+    [
+      {
+        kind: 'task-added',
+        at: at('2026-08-09T09:00:00'),
+        label: 'Added',
+        task: { name: 'School Tasks', summary: 'Anything', slug: 'school-tasks', uid: 'uid-1', href: '/tasks/school-tasks' },
+      },
+    ],
+    { now: NOW }
+  );
+
+  const { undated } = buildTimeline({
+    history,
+    undated: [
+      undatedRow('Anything', {
+        task: { name: 'School Tasks', summary: 'Anything', slug: 'school-tasks', uid: 'uid-1', href: '/tasks/school-tasks' },
+      }),
+    ],
+    now: NOW,
+  });
+
+  assert.equal(undated.rows[0].isNew, false, 'a first visit badges nothing at all');
 });
 
 test('buildTimeline: a capped future block keeps the soonest and says where the rest are', () => {

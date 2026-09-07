@@ -268,18 +268,50 @@ test.describe('Latest', () => {
     await expect(page.getByText('Clear out the shed')).toHaveCount(0);
   });
 
-  test('the tasks with no due date are one line, and it goes to Tasks', async ({ page }) => {
+  test('the tasks with no due date open in place, above the line', async ({ page }) => {
     await login(page);
 
-    const undated = page.locator('.stream__undated a');
-    await expect(undated).toHaveText(/^Also \d+ tasks? without a due date$/);
+    const twisty = page.locator('.stream__undated');
+    const summary = twisty.locator('summary');
+    await expect(summary).toHaveText(/^Also \d+ tasks? without a due date$/);
+
     // Immediately above the line: they are not on the axis, so this is as close
     // to "now" as they can honestly get.
-    expect(await topOf(undated)).toBeLessThan(await topOf(page.locator('#today')));
+    expect(await topOf(summary)).toBeLessThan(await topOf(page.locator('#today')));
+    // The same 44px floor as everything else she has to hit with a thumb.
+    const box = await summary.boundingBox();
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.width).toBeGreaterThanOrEqual(44);
 
-    await undated.click();
-    await expect(page).toHaveURL(/\/tasks$/);
-    await expect(page.getByRole('link', { name: 'School Tasks' })).toBeVisible();
+    // Shut until she asks: the axis is what this page is, and a block of
+    // dateless rows above the line would push it down the screen.
+    const rows = twisty.locator('.stream__item');
+    await expect(rows.first()).toBeHidden();
+
+    await summary.click();
+    await expect(rows.first()).toBeVisible();
+    // She is still on Latest -- that is the whole change. The tasks are here.
+    await expect(page).toHaveURL(/\/#today$/);
+
+    // Ordinary task rows: no date, the list's name, and a tap that opens it.
+    const count = await rows.count();
+    expect(count).toBeGreaterThan(1);
+    await expect(rows.first().locator('.stream__what')).toHaveText('No due date');
+    for (let i = 0; i < count; i += 1) {
+      await expect(rows.nth(i).locator('a.stream__row')).toHaveAttribute(
+        'href',
+        /^\/tasks\/[a-z0-9-]+$/
+      );
+    }
+    // Two lists contribute, so the by-list ordering is doing something.
+    const lists = await twisty.locator('.stream__list-name').allTextContents();
+    expect(new Set(lists).size).toBeGreaterThan(1);
+    expect(lists).toEqual([...lists].sort());
+
+    // And the first row really does go to its list page.
+    await rows.first().locator('a.stream__row').click();
+    await expect(page).toHaveURL(/\/tasks\/[a-z0-9-]+$/);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   });
 
   test('#today is not hidden under the fixed top bar', async ({ page }) => {
@@ -310,11 +342,14 @@ test.describe('Latest', () => {
     }));
     expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
 
-    // Same 44px floor as everything else she has to hit with a thumb.
+    // Same 44px floor as everything else she has to hit with a thumb. The rows
+    // inside the closed undated twisty are skipped: nothing she cannot see is a
+    // tap target, and they are measured by the test that opens it.
     const rows = page.locator('a.stream__row');
     const count = await rows.count();
     expect(count).toBeGreaterThan(0);
     for (let i = 0; i < count; i += 1) {
+      if (!(await rows.nth(i).isVisible())) continue;
       const box = await rows.nth(i).boundingBox();
       expect(box.height).toBeGreaterThanOrEqual(44);
       expect(box.width).toBeGreaterThanOrEqual(44);

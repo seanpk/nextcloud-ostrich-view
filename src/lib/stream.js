@@ -272,26 +272,31 @@ function dueDayLabel(civilMs, now) {
  * still carrying the `#today` anchor, so the template above and below the line
  * is the same template it was before tasks existed.
  *
- * `undatedLabel` is the one line that stands in for tasks with no due date at
- * all: they are not on a timeline and cannot be placed on this axis, but a
- * block above Today that quietly omitted them would read as "everything she has
- * to do".
+ * `undated` is the tasks with no due date at all: `{label, rows}`, or null when
+ * there are none. They are not on a timeline and cannot be placed on this axis,
+ * but a block above Today that quietly omitted them would read as "everything
+ * she has to do" -- so they sit immediately above the line, behind a closed
+ * twisty whose summary is the count. Shown IN PLACE rather than linked away to:
+ * Latest is already the cross-list view, and the undated bucket was the one
+ * thing on it a reader had to leave the page to see. See `undatedTasks` in
+ * ./stream-tasks.js.
  *
  * `moreUpcomingLabel` only appears if the future block itself had to be capped,
  * which needs an implausible number of dated open tasks; the soonest are kept,
  * because those are the ones the line is about.
  *
- * @param {{upcoming?: Array<object>, history: object, undatedCount?: number,
+ * @param {{upcoming?: Array<object>, history: object, undated?: Array<object>,
  *          now?: Date, limit?: number|null}} options
  *   history: a `buildStream` result. upcoming: rows from `upcomingTasks`,
- *   already ordered furthest-first.
+ *   already ordered furthest-first. undated: rows from `undatedTasks`, already
+ *   ordered by `sortUndated`.
  * @returns {{future: Array<{label: string, isOverdue: boolean, items: Array<object>}>,
- *            undatedLabel: string|null, moreUpcomingLabel: string|null,
- *            days: Array<object>, newCount: number, moreLabel: string|null,
- *            total: number}}
+ *            undated: {label: string, rows: Array<object>}|null,
+ *            moreUpcomingLabel: string|null, days: Array<object>,
+ *            newCount: number, moreLabel: string|null, total: number}}
  */
 export function buildTimeline(options) {
-  const { upcoming = [], history, undatedCount = 0, now = new Date(), limit = null } = options;
+  const { upcoming = [], history, undated = [], now = new Date(), limit = null } = options;
 
   // Capping keeps the SOONEST, so it drops from the top of the block: the rows
   // nearest the line are the ones the reader came for, and the note that goes
@@ -314,15 +319,51 @@ export function buildTimeline(options) {
     group.items.push(item);
   }
 
+  const undatedRows = undated ?? [];
+  const badge = newlyAdded(history);
+
   return {
     ...history,
     future,
-    undatedLabel:
-      undatedCount > 0
-        ? `Also ${undatedCount} task${undatedCount === 1 ? '' : 's'} without a due date`
+    undated:
+      undatedRows.length > 0
+        ? {
+            label: `Also ${undatedRows.length} task${undatedRows.length === 1 ? '' : 's'} without a due date`,
+            rows: undatedRows.map((row) => ({ ...row, isNew: badge.has(taskKey(row.task)) })),
+          }
         : null,
     moreUpcomingLabel: capped.length < upcoming.length ? 'Later tasks are in Tasks.' : null,
   };
+}
+
+/** One task, identified across the two halves of the page: its list and its UID. */
+function taskKey(task) {
+  return task?.uid ? `${task.slug}|${task.uid}` : null;
+}
+
+/**
+ * The tasks whose "Added" row below the line is badged New.
+ *
+ * The badge rule lives in `buildStream` and reads `at`, which an undated row
+ * has not got -- so rather than invent a second rule for the twisty, this
+ * reads the answer the history already came to. A task that turned up since
+ * her previous sitting has an Added row down there carrying the badge; its row
+ * in the twisty carries the same one, and a task that has been sitting undated
+ * for a month carries none.
+ *
+ * Keyed by list and UID, not by name: two lists can hold the same chore, and a
+ * badge on the wrong row would be a small lie about which one is new.
+ */
+function newlyAdded(history) {
+  const keys = new Set();
+  for (const day of history?.days ?? []) {
+    for (const item of day.items ?? []) {
+      if (item.kind !== 'task-added' || !item.isNew) continue;
+      const key = taskKey(item.task);
+      if (key !== null) keys.add(key);
+    }
+  }
+  return keys;
 }
 
 /** A previous-visit stamp as milliseconds, or null if there is nothing usable. */

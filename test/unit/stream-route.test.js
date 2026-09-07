@@ -223,10 +223,28 @@ function historyNames(body) {
   return rowNames(body.slice(line));
 }
 
-/** The rows ABOVE the Today line: what is coming. */
+/**
+ * The rows ABOVE the Today line: what is coming.
+ *
+ * Stops at the undated twisty, which also lives above the line but is not on
+ * the axis -- see `undatedNames`. Without that, "what is coming" would silently
+ * include four dateless chores.
+ */
 function upcomingNames(body) {
   const line = body.indexOf('id="today"');
-  return rowNames(body.slice(0, line));
+  const twisty = body.indexOf('class="stream__undated"');
+  return rowNames(body.slice(0, twisty === -1 ? line : twisty));
+}
+
+/** The undated twisty's markup, or null when the page has none. */
+function undatedBlock(body) {
+  return /<details class="stream__undated">[\s\S]*?<\/details>/.exec(body)?.[0] ?? null;
+}
+
+/** The rows inside the undated twisty, in the order the page lists them. */
+function undatedNames(body) {
+  const twisty = undatedBlock(body);
+  return twisty === null ? [] : rowNames(twisty);
 }
 
 /** The `label`/`dueLabel` of every row, in order: "Finished", "Was due ...". */
@@ -237,12 +255,18 @@ function rowLabels(body) {
 }
 
 /**
- * Every row for one task, as `{label, badged}` -- there can be two (a task that
- * turned up and was then finished), which is exactly what some of these tests
- * are about.
+ * Every HISTORY row for one task, as `{label, badged}` -- there can be two (a
+ * task that turned up and was then finished), which is exactly what some of
+ * these tests are about.
+ *
+ * Below the line only: an open task also has a row above it -- its due date, or
+ * a line in the undated twisty -- and those are about what is still to do, not
+ * about what happened.
  */
 function rowsFor(body, summary) {
-  const blocks = body.match(/<li class="stream__item[^"]*">[\s\S]*?<\/li>/g) ?? [];
+  const line = body.indexOf('id="today"');
+  assert.notEqual(line, -1, 'the page always has a Today line');
+  const blocks = body.slice(line).match(/<li class="stream__item[^"]*">[\s\S]*?<\/li>/g) ?? [];
   return blocks
     .filter((block) => block.includes(`>${summary}<`))
     .map((block) => ({
@@ -360,7 +384,7 @@ test('stream: what is coming sits above the line, with the overdue against it', 
   assert.ok(!rowNames(response.body).includes('Clear out the shed'));
 });
 
-test('stream: the tasks with no due date are counted, and link to Tasks', async () => {
+test('stream: the tasks with no due date are a twisty, holding the tasks themselves', async () => {
   const dir = dataDir();
   const { url } = await bootMock();
   const app = await boot({ baseUrl: url, dir });
@@ -372,10 +396,48 @@ test('stream: the tasks with no due date are counted, and link to Tasks', async 
   // dishwasher: four open tasks with nowhere on a time axis to be.
   assert.match(
     response.body,
-    /<p class="stream__undated"><a href="\/tasks">Also 4 tasks without a due date<\/a><\/p>/
+    /<details class="stream__undated">\s*<summary>Also 4 tasks without a due date<\/summary>/
   );
-  // And it sits above the line, where the block above it ends.
+  // Closed until she asks: the axis is what this page is.
+  assert.doesNotMatch(response.body, /<details class="stream__undated" open>/);
+
+  // The tasks are HERE now, not a tap away at /tasks -- by list, then A-Z, so
+  // two lists' worth of chores read as two runs rather than as a shuffle.
+  assert.deepEqual(undatedNames(response.body), [
+    'Empty the dishwasher',
+    'Draw the graphs',
+    'Read chapter 4',
+    'Return the library book',
+  ]);
+
+  // Ordinary task rows: each says it has no date, names its list, and opens it.
+  const twisty = undatedBlock(response.body);
+  assert.deepEqual(rowLabels(twisty), Array(4).fill('No due date'));
+  assert.match(twisty, /<span class="stream__list-name [^"]*">Chores<\/span>/);
+  assert.match(twisty, /href="\/tasks\/school-tasks"/);
+  // A cancelled chore has no due date either, and still says nothing.
+  assert.ok(!undatedNames(response.body).includes('Clear out the shed'));
+
+  // And the whole block sits above the line, where what is coming ends.
   assert.ok(response.body.indexOf('stream__undated') < response.body.indexOf('id="today"'));
+});
+
+test('stream: with every open task dated, there is no twisty at all', async () => {
+  const dir = dataDir();
+  // One list, and nothing open in it without a due date: no lid over an empty
+  // box.
+  const chores = CALENDAR_FIXTURES.find((calendar) => calendar.uri === 'chores');
+  const { url } = await bootMock({
+    calendars: [{ ...chores, todos: chores.todos.filter((blob) => blob.includes('DUE')) }],
+  });
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  assert.equal(response.statusCode, 200);
+  assert.doesNotMatch(response.body, /stream__undated/);
+  assert.doesNotMatch(response.body, /without a due date/);
 });
 
 test('stream: the same task is not announced twice, however often she looks', async () => {
@@ -438,6 +500,16 @@ test('stream: a list shared today puts its open tasks at the top, badged', async
     'Cut the hedge back',
     'the newest thing that has happened'
   );
+
+  // It has no due date, so it is also in the twisty above the line -- wearing
+  // the same badge, because the badge follows the Added row rather than being
+  // decided twice.
+  const inTwisty = /<li class="stream__item[^"]*">[\s\S]*?<\/li>/g;
+  const hedgeRow = (undatedBlock(response.body).match(inTwisty) ?? []).find((block) =>
+    block.includes('>Cut the hedge back<')
+  );
+  assert.ok(hedgeRow, 'the newly shared open task is in the undated twisty');
+  assert.ok(hedgeRow.includes('stream__badge'), 'and badged there too');
 
   // The finished one is not "added today": its news is that it was finished,
   // last August, and its bumped DTSTAMP means that is its only row. (The clock

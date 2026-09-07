@@ -12,7 +12,7 @@ const MIN_TAP = 44; // px -- the WCAG/Apple floor. Our design aims far above it.
 
 /** Every visible thing you can tap or click. */
 const INTERACTIVE =
-  'a.tile, a.stream__row, .stream__undated a, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
+  'a.tile, a.stream__row, .stream__undated > summary, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
 
 const PAGES = [
   { name: 'the stream', path: '/', needsLogin: true },
@@ -290,6 +290,60 @@ test('a stream row\u2019s artwork carries its size in the markup, not only in th
   expect(svg.ok()).toBe(true);
   expect(await svg.text()).toContain('width="48" height="48"');
 });
+
+/**
+ * The undated twisty, opened, at both font sizes.
+ *
+ * A closed <details> hides its body from every measurement the tests above
+ * make, so the rows inside it would otherwise never be looked at -- and they
+ * are the only rows on the page that arrive after a tap. Same two checks as the
+ * rest of the file: nothing slides sideways, and everything she has to hit
+ * clears the 44px floor.
+ */
+for (const rootFontSize of [null, '36px']) {
+  const at = rootFontSize ? "when the reader's font is doubled" : 'as drawn';
+
+  test(`the opened undated twisty fits and stays tappable ${at}`, async ({ page }) => {
+    await login(page);
+    await page.goto('/');
+
+    if (rootFontSize) {
+      // Through the CSSOM, not addStyleTag: the app's CSP refuses an injected
+      // <style>, as it should. Same trick as the artwork tests above.
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = size;
+      }, rootFontSize);
+      await expect
+        .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).fontSize))
+        .toBe(rootFontSize);
+    }
+
+    const summary = page.locator('.stream__undated > summary');
+    await expect(summary).toBeVisible();
+    await summary.click();
+
+    const rows = page.locator('.stream__undated a.stream__row');
+    const count = await rows.count();
+    expect(count, 'the twisty should hold rows once it is opened').toBeGreaterThan(0);
+
+    for (let i = 0; i < count; i += 1) {
+      const row = rows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      const box = await row.boundingBox();
+      expect(box, `no box for undated row #${i}`).not.toBeNull();
+      expect(box.height, `height of undated row #${i}`).toBeGreaterThanOrEqual(MIN_TAP);
+      expect(box.width, `width of undated row #${i}`).toBeGreaterThanOrEqual(MIN_TAP);
+    }
+
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth, 'the opened twisty must not push the page sideways').toBeLessThanOrEqual(
+      clientWidth + 1
+    );
+  });
+}
 
 test('the viewport meta tag allows zooming (never user-scalable=no)', async ({ page }) => {
   await page.goto('/login');
