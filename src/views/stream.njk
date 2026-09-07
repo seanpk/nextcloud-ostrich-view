@@ -39,8 +39,13 @@
       include today, so this sits under a bare "Today" heading. A claim we can
       finally make honestly -- it is no longer the same rendering as "the lookup
       failed", because a failed lookup now reaches the error pages instead.
+
+      `moreLabel` is the one thing that takes it back off the page: a walk that
+      gave up at its bounds and found nothing cannot say nothing has changed,
+      only that it did not look everywhere. That case shows the line below and
+      this one not at all.
     #}
-    {% if total == 0 %}
+    {% if total == 0 and not moreLabel %}
       <p class="empty">Nothing has changed yet.</p>
     {% endif %}
 

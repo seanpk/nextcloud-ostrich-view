@@ -467,6 +467,34 @@ test('stream: a truncated answer from a one-off walk is not cached, so SEARCH re
   assert.doesNotMatch(healthy.body, /Older changes aren/);
 });
 
+test('stream: a truncated walk that found nothing does not claim nothing changed', async () => {
+  // The two lines contradict each other, and only one of them is a claim this
+  // lookup can make: whole subtrees went unvisited, so "nothing has changed
+  // yet" is exactly what we do not know.
+  const skeletonOnly = Object.fromEntries(
+    Object.entries(DEFAULT_TREE).filter(([, node]) => !node.sharedBy)
+  );
+  const buried = { type: 'folder', children: {} };
+  let node = buried;
+  for (let i = 0; i < WALK_MAX_DEPTH + 1; i += 1) {
+    node = { type: 'folder', children: { [`level ${i}`]: node } };
+  }
+
+  const dir = dataDir();
+  const { url } = await bootMock({
+    tree: { ...skeletonOnly, Deep: { ...node, sharedBy: SHARE_OWNER } },
+    searchStatus: 405,
+  });
+  const app = await boot({ baseUrl: url, dir });
+  const session = await login(app);
+
+  const response = await app.inject({ url: '/', headers: { cookie: session.cookie } });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Older changes aren’t listed here\./);
+  assert.doesNotMatch(response.body, /Nothing has changed yet/);
+});
+
 // --- The empty case ---------------------------------------------------------
 
 test('stream: an account with nothing shared says nothing has changed, and means it', async () => {
