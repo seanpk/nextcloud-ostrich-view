@@ -13,8 +13,9 @@ import { join } from 'node:path';
  * never show. See `sharedBy` / `shareOwnerOf` below.
  *
  * Every file carries real `bytes` (see assets/, and assets/generate.mjs for how
- * they were made), so `/content/*` and the pdf.js viewer are exercised against
- * genuine PNG/JPEG/PDF data rather than placeholders. `size` is derived from
+ * they were made), so `/content/*`, the pdf.js viewer and the DOCX converter
+ * are exercised against genuine PNG/JPEG/PDF/OOXML data rather than
+ * placeholders. `size` is derived from
  * the bytes so `oc:size` and `Content-Length` can never disagree.
  */
 
@@ -26,6 +27,15 @@ const SAMPLE = {
   pdf: readFileSync(join(ASSETS, 'sample.pdf')),
   png: readFileSync(join(ASSETS, 'sample.png')),
   jpg: readFileSync(join(ASSETS, 'sample.jpg')),
+  // A real (hand-built) Word document: a Heading 1, bold and italic runs, a
+  // bullet list, an embedded PNG and a 2x2 table -- one of each thing the
+  // converter is supposed to preserve, so the suite asserts on a genuine
+  // mammoth conversion rather than on a stub.
+  docx: readFileSync(join(ASSETS, 'sample.docx')),
+  // A valid workbook that exists only to be downloaded: the office type we
+  // deliberately do not render, and therefore the "we can't show this one,
+  // here is the original" path.
+  xlsx: readFileSync(join(ASSETS, 'sample.xlsx')),
 };
 
 /**
@@ -41,6 +51,18 @@ function file(contentType, bytes, extra = {}) {
 const pdf = (extra) => file('application/pdf', SAMPLE.pdf, extra);
 const png = (extra) => file('image/png', SAMPLE.png, extra);
 const jpg = (extra) => file('image/jpeg', SAMPLE.jpg, extra);
+const docx = (extra) =>
+  file(
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    SAMPLE.docx,
+    extra
+  );
+const xlsx = (extra) =>
+  file(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    SAMPLE.xlsx,
+    extra
+  );
 
 /**
  * Stand-in thumbnail bytes for a PDF preview, when `createMockNextcloud({
@@ -100,6 +122,10 @@ export const DEFAULT_TREE = {
           // One of each: a PDF (flat icon) and a photo (real thumbnail).
           'Week 2 Notes.pdf': pdf({ lastModified: RECENT_LAST_MODIFIED }),
           'cell diagram.png': png(),
+          // The two office paths, side by side in one folder: a Word document
+          // the app converts and shows, and a workbook it only offers.
+          'Week 3 Notes.docx': docx(),
+          'marks.xlsx': xlsx(),
           'mitosis.svg': svg(),
         },
       },
