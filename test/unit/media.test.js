@@ -526,5 +526,5 @@ test('/view: a file we can neither show nor offer has one button, and it is Back
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /viewer--plain/);
   assert.ok(!response.body.includes('/download/'));
-  assert.match(response.body, /btn btn--primary" href="\/">Back to the folder/);
+  assert.match(response.body, /btn btn--primary" href="\/files">Back to the folder/);
 });
