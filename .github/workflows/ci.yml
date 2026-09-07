@@ -41,8 +41,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      # WebKit as well as Chromium: the suite has a webkit-iphone project (see
+      # playwright.config.js), because the icon-size report that added it was
+      # never reproducible in Chromium.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
 
       - name: End-to-end tests
         run: npm run test:e2e

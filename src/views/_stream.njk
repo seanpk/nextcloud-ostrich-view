@@ -18,11 +18,19 @@
 #}
 
 {% macro row_body(item) %}
+  {#
+    `width`/`height` on both, matching the sizes styles.css gives them. The CSS
+    wins wherever it loads; the attributes are what the browser has to go on
+    when it does not, and an <img> of an SVG with no intrinsic size and no CSS
+    renders at 300px. "The icons look enormous on mobile" is what that looks
+    like, so the intrinsic size is stated here as well as in the stylesheet and
+    in the SVGs themselves.
+  #}
   <span class="stream__thumb">
     {% if item.tile.previewUrl %}
-      <img class="stream__preview" src="{{ item.tile.previewUrl }}" alt="Preview of {{ item.tile.name }}" loading="lazy" />
+      <img class="stream__preview" src="{{ item.tile.previewUrl }}" width="64" height="64" alt="Preview of {{ item.tile.name }}" loading="lazy" />
     {% else %}
-      <img class="stream__icon" src="{{ item.tile.icon }}" alt="" aria-hidden="true" />
+      <img class="stream__icon" src="{{ item.tile.icon }}" width="36" height="36" alt="" aria-hidden="true" />
     {% endif %}
   </span>
 
@@ -90,7 +98,7 @@
            four flat shapes that will not change, and a macro has no access to
            `appVersion` anyway (Nunjucks macros do not see the caller's
            context). #}
-        <img class="stream__icon" src="/public/icons/{{ icon }}.svg" alt="" aria-hidden="true" />
+        <img class="stream__icon" src="/public/icons/{{ icon }}.svg" width="34" height="34" alt="" aria-hidden="true" />
       </span>
 
       <span class="stream__text">

@@ -193,6 +193,104 @@ test('in full screen, tap targets and horizontal scroll still meet the same bar'
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
 });
 
+/**
+ * Artwork stays artwork, at any reader's font size.
+ *
+ * "The icons look enormous on mobile" was reported from a phone and could not
+ * be reproduced in Chromium or WebKit at any phone viewport with the stylesheet
+ * applied -- but it reproduces immediately once the BROWSER's default font size
+ * is raised, which on Android Chrome is a slider in Accessibility settings and
+ * on a phone belonging to someone who finds small text hard is very likely to
+ * be turned up. `html { font-size: 112.5% }` is a percentage of that default,
+ * so every rem in the app followed it: at the 200% setting a row's 3.5rem
+ * thumbnail became 126px and the stream scrolled sideways.
+ *
+ * Raising the root font size directly is the portable way to emulate that --
+ * the CDP call that sets a browser default is Chromium-only, and this has to
+ * run on WebKit too, since WebKit is the reason this file has a third project.
+ *
+ * Text should still scale. Artwork should not, past the size it was drawn at.
+ */
+const ART = '.stream__thumb, .stream__icon, .stream__preview, .tile__icon';
+const MAX_ART = 66; // the design's 3.5rem == 63px, plus rounding slack
+
+const ART_PAGES = [
+  ['the stream', '/'],
+  ['the files page', '/files'],
+  ['a folder', '/files/Biology%20101/Lectures'],
+];
+
+for (const [where, path] of ART_PAGES) {
+  for (const rootFontSize of [null, '36px']) {
+    const at = rootFontSize ? "when the reader's font is doubled" : 'as drawn';
+
+    test(`${where}: artwork stays inside its box ${at}`, async ({ page }) => {
+      await login(page);
+      await page.goto(path);
+
+      if (rootFontSize) {
+        // 36px root == a browser default of 32px against the app's 112.5%,
+        // which is Android Chrome's largest text-scaling step.
+        //
+        // Set through the CSSOM rather than with `addStyleTag`: the app's CSP
+        // is `style-src 'self'` with no 'unsafe-inline', so an injected <style>
+        // is refused (as it should be) while a scripted style property is not.
+        await page.evaluate((size) => {
+          document.documentElement.style.fontSize = size;
+        }, rootFontSize);
+        await expect
+          .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).fontSize))
+          .toBe(rootFontSize);
+      }
+
+      const elements = page.locator(ART);
+      const count = await elements.count();
+      expect(count, `expected artwork on ${path}`).toBeGreaterThan(0);
+
+      for (let i = 0; i < count; i += 1) {
+        const element = elements.nth(i);
+        if (!(await element.isVisible())) continue;
+        await element.scrollIntoViewIfNeeded();
+        const box = await element.boundingBox();
+        const what = (await element.getAttribute('class')) ?? `#${i}`;
+        expect(box, `no box for ${what}`).not.toBeNull();
+        expect(box.width, `width of ${what} on ${path}`).toBeLessThanOrEqual(MAX_ART);
+        expect(box.height, `height of ${what} on ${path}`).toBeLessThanOrEqual(MAX_ART);
+      }
+
+      // And the page still does not slide sideways under her thumb, which is
+      // what a 126px thumbnail beside a full-width name used to cost.
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(scrollWidth, `${path} overflows horizontally ${at}`).toBeLessThanOrEqual(
+        clientWidth + 1
+      );
+    });
+  }
+}
+
+test('a stream row\u2019s artwork carries its size in the markup, not only in the CSS', async ({
+  page,
+}) => {
+  // The last line of defence against the reported symptom: an <img> of an SVG
+  // with a viewBox and no intrinsic size renders at 300px when no CSS reaches
+  // it. Every one of these ships width/height, so the worst case is a small
+  // icon rather than a column of posters.
+  await login(page);
+
+  for (const selector of ['.stream__icon', '.stream__preview']) {
+    const img = page.locator(selector).first();
+    await expect(img).toHaveAttribute('width', /^\d+$/);
+    await expect(img).toHaveAttribute('height', /^\d+$/);
+  }
+
+  const svg = await page.request.get('/public/icons/task-due.svg');
+  expect(svg.ok()).toBe(true);
+  expect(await svg.text()).toContain('width="48" height="48"');
+});
+
 test('the viewport meta tag allows zooming (never user-scalable=no)', async ({ page }) => {
   await page.goto('/login');
   const content = await page.locator('meta[name="viewport"]').getAttribute('content');
