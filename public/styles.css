@@ -27,6 +27,28 @@
   --radius: 14px;
   --tap: 3.5rem; /* 56px minimum for anything tappable */
 
+  /*
+   * The artwork sizes -- a stream row's thumbnail square, the flat icon inside
+   * it, a folder tile's icon, and a tile's thumbnail band. Capped in px as well
+   * as rem, and that cap is the point.
+   *
+   * `rem` follows the BROWSER's default font size, which on Android Chrome is a
+   * slider in Accessibility settings -- and a phone belonging to someone who
+   * finds small text hard is exactly the phone that has it turned up. At the
+   * 200% setting the root goes 18px -> 36px, which took a row's thumbnail from
+   * 63px to 126px and pushed the stream 39px sideways (measured, Pixel 7
+   * viewport with the default font size raised to 32px). Text SHOULD grow with
+   * that setting; a decorative thumbnail should not, and a page she cannot read
+   * without swiping sideways is worse than a small icon.
+   *
+   * So: scale with the reader's font up to the size the design was drawn at,
+   * and no further.
+   */
+  --art: min(3.5rem, 64px); /* a stream row's thumbnail square */
+  --art-icon: min(2rem, 36px); /* the flat icon inside it */
+  --art-tile-icon: min(3.5rem, 64px); /* a folder tile's flat icon */
+  --art-tile-band: min(8rem, 144px); /* a tile's thumbnail band */
+
   /* The viewer's own bottom bar (the full-screen toggle), and the total
      chrome height a /view/ page has to leave room for -- topbar + safe-area
      inset + this bar + a little breathing room. Immersive mode collapses
@@ -326,13 +348,15 @@ a.tile:focus-visible {
   /* A fixed height, not an aspect-ratio: on a phone the card is nearly the
      full viewport width, and a photo-style ratio (e.g. 16:10) against that
      width would make the band taller than the screen. */
-  height: 8rem;
+  height: var(--art-tile-band);
   background: var(--paper);
 }
 
 .tile__preview {
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: cover;
 }
 
@@ -352,10 +376,16 @@ a.tile:focus-visible {
 }
 
 /* A flat icon (folder, or no thumbnail available) stays a fixed size and
-   centred in the band, rather than stretching to fill it. */
+   centred in the band, rather than stretching to fill it. The `max-*` pair is
+   belt and braces: `width`/`height` already pin it, and these mean that even an
+   engine that resolves the pinned size differently cannot let the image out of
+   the band. */
 .tile:not(.tile--tasklist) .tile__icon {
-  width: 3.5rem;
-  height: 3.5rem;
+  flex: 0 0 auto;
+  width: var(--art-tile-icon);
+  height: var(--art-tile-icon);
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -998,8 +1028,9 @@ a.tile:focus-visible {
 /*
  * The anchor. `/#today` -- which is where the Latest toggle and the login
  * redirect both point -- lands here, and the top bar is fixed, so without this
- * the heading would be scrolled to underneath it. No JavaScript is involved in
- * any of this: the anchor IS the mechanism.
+ * the heading would be scrolled to underneath it. The anchor IS the mechanism;
+ * public/stream.js only covers plain `/`, where there is no fragment, and it
+ * relies on this same rule.
  */
 #today {
   scroll-margin-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 0.75rem);
@@ -1047,12 +1078,15 @@ a.stream__row:focus-visible {
 }
 
 .stream__thumb {
-  flex: 0 0 auto;
+  /* `0 0 var(--art)` rather than `0 0 auto`: the basis is stated outright so
+     the square cannot be shrunk by a long file name beside it, whichever way an
+     engine resolves `auto` against the flex item's contents. */
+  flex: 0 0 var(--art);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 3.5rem; /* 64px at the 18px base */
-  height: 3.5rem;
+  width: var(--art); /* 63px at the 18px base, and never more than 64px */
+  height: var(--art);
   overflow: hidden;
   border-radius: 8px;
   background: var(--paper);
@@ -1061,6 +1095,8 @@ a.stream__row:focus-visible {
 .stream__preview {
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: cover;
 }
 
@@ -1072,9 +1108,30 @@ a.stream__row:focus-visible {
   object-fit: contain;
 }
 
+/*
+ * The flat file-type icon a row falls back to when there is no thumbnail, and
+ * the small "what happened" mark on a task row (see the task block below,
+ * which trims it slightly).
+ *
+ * Three belts, because "the icons look enormous on mobile" was reported from a
+ * phone and could not be reproduced in any engine we can drive:
+ *
+ *  - these sizes, capped in px as well as rem (see --art-icon in :root);
+ *  - `max-width`/`max-height`, so the image cannot leave the square that holds
+ *    it whatever an engine makes of the pinned size;
+ *  - and, one layer down, `width="48" height="48"` on every SVG in
+ *    public/icons/ beside its viewBox. An SVG with a viewBox and no intrinsic
+ *    size is a replaced element with a ratio and no dimensions, which renders
+ *    at the default 300px (or its container's width) when no CSS reaches it.
+ *    With the attributes there, a page that somehow loses this stylesheet shows
+ *    small icons rather than a column of posters.
+ */
 .stream__icon {
-  width: 2rem;
-  height: 2rem;
+  flex: 0 0 auto;
+  width: var(--art-icon);
+  height: var(--art-icon);
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -1410,8 +1467,8 @@ a.stream__row:focus-visible {
 }
 
 .stream__thumb--task .stream__icon {
-  width: 1.9rem;
-  height: 1.9rem;
+  width: min(1.9rem, 34px);
+  height: min(1.9rem, 34px);
 }
 
 /*

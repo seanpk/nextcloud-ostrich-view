@@ -357,6 +357,67 @@ test.describe('Arriving on Today', () => {
 });
 
 /**
+ * Arriving on Today from a URL with no fragment at all.
+ *
+ * This is how she actually opens the app: a bookmark, or the icon she saved to
+ * her home screen. Both open plain `/`, the `#today` anchor has nothing to
+ * answer, and the first thing on the page is whatever is due furthest away --
+ * which is precisely the complaint ("the Sep 15 item is at the top"). A server
+ * redirect cannot fix it: browsers never send the fragment, so `Location:
+ * /#today` against `/` loops forever. public/stream.js does, and these are the
+ * tests that say so -- with scripting ON, which is the whole point of them; the
+ * block above keeps the scriptless path honest.
+ */
+test.describe('Arriving on Today from a bookmark', () => {
+  test('plain / puts the Today line in the viewport, with the future above it', async ({ page }) => {
+    await login(page);
+    // No fragment. Exactly what a home-screen icon opens.
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/$/);
+
+    const today = page.locator('#today');
+    await expect(today).toBeInViewport();
+
+    // And she has been carried past the block of what is coming, rather than
+    // starting on it -- it is above her, to scroll back to.
+    const firstDue = page.locator('.stream__day--due').first();
+    await expect(firstDue).not.toBeInViewport();
+    const dueTop = await firstDue.evaluate((el) => el.getBoundingClientRect().top);
+    expect(dueTop, 'the furthest-away due group sits above the viewport').toBeLessThan(0);
+
+    // The fixed bar is not sitting on the line she landed on.
+    const clear = await page.evaluate(() => {
+      const heading = document.querySelector('#today');
+      const bar = document.querySelector('.topbar');
+      return heading.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
+    });
+    expect(clear).toBeGreaterThanOrEqual(0);
+  });
+
+  test('a reload -- pull-to-refresh -- lands on Today again, not where she was', async ({ page }) => {
+    await login(page);
+    await page.goto('/');
+    await expect(page.locator('#today')).toBeInViewport();
+
+    // Wander down into the history, then do the most natural thing on a phone.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect(page.locator('#today')).not.toBeInViewport();
+
+    await page.reload();
+    await expect(page.locator('#today')).toBeInViewport();
+  });
+
+  test('a fragment of her own is left alone', async ({ page }) => {
+    await login(page);
+    // `#main` is the page's own landmark: asking for it must not be overruled.
+    await page.goto('/#main');
+
+    await expect(page.locator('.page__title')).toBeInViewport();
+    await expect(page.locator('#today')).not.toBeInViewport();
+  });
+});
+
+/**
  * One task list that will not answer.
  *
  * The stream is the app's front door, so a broken share, a Nextcloud mid-

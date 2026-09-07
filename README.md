@@ -58,13 +58,19 @@ real templates, reading `demo/dataset.json` instead of a Nextcloud.
 <p align="center"><em>Latest · Files · a PDF, open in the page · a task list</em></p>
 
 **Latest** is the page she lands on, and the headline. It is one time axis, and
-she arrives on the **Today** line in the middle of it: above the line, the tasks
-that are coming up — furthest away at the top, the soonest just above the line,
-and anything late in red right against it, with a counted line for the tasks
-that carry no due date at all. Below the line, what has happened: files and task
-changes together, newest first, grouped by day, each row naming the folder it
-changed in or the task list it belongs to. Tapping a task row opens its list,
-which is the only place a task is shown in full.
+she arrives on the **Today** line in the middle of it — from a link, from a
+bookmark, from a home-screen icon or after a pull-to-refresh, with the future
+above her thumb to scroll back to and the past below. Every link into the page
+carries the `#today` anchor, which does the job with scripting off; the one URL
+an anchor cannot answer is a plain `/` with no fragment, and `public/stream.js`
+covers that and nothing else.
+
+Above the line, the tasks that are coming up — furthest away at the top, the
+soonest just above the line, and anything late in red right against it, with a
+counted line for the tasks that carry no due date at all. Below the line, what
+has happened: files and task changes together, newest first, grouped by day,
+each row naming the folder it changed in or the task list it belongs to. Tapping
+a task row opens its list, which is the only place a task is shown in full.
 
 Rows newer than her *previous* visit carry a **New** badge — nothing is ever
 hidden by a timestamp, so a badge in the wrong place costs her a badge and not
@@ -372,6 +378,15 @@ cd ~/git-repos/nextcloud-ostrich-view && ./deploy.sh
    `scripts/healthcheck.js` inside the container) against a 30-second
    wall-clock deadline, then prints **PASS** (exit 0) or **FAIL** with the last
    50 lines of container output (exit 1).
+
+Static assets are **content-hashed**, so a deploy never serves a stale
+stylesheet. `/public/` is cached for a week in the browser (the HTML never is),
+and the `?v=` on every asset the pages link to is a short sha256 of the bytes
+under `public/` and `public/icons/`, computed at boot — so changing a stylesheet
+or a script changes its URL, and changing nothing leaves the cache alone. There
+is no version number to remember to bump; there used to be (`package.json`'s,
+which had not moved since the first commit), and a cache-busting token that
+never changes is not one. See `src/lib/asset-version.js`.
 
 `/healthz` does not touch Nextcloud, so a PASS means "the process booted and
 its configuration validated" — not "Nextcloud is reachable". That separation is

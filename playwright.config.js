@@ -31,5 +31,27 @@ export default defineConfig({
       name: 'pixel-7',
       use: { ...devices['Pixel 7'] },
     },
+    {
+      /*
+       * A phone that is not Chromium.
+       *
+       * "The icons look enormous on mobile" was reported from a real phone and
+       * could not be reproduced in Chromium at any viewport -- which left an
+       * engine difference as the leading suspect, and left us with no way to
+       * see one. WebKit is the engine every iPhone browser is, so it is the one
+       * that has to be in the suite; it is also close enough to Android's
+       * ancestry to catch the class of bug this was (a replaced element sized
+       * from something other than the CSS that pins it).
+       *
+       * Two spec files, not the whole suite: `ux.spec.js` is the layout
+       * contract (tap targets, no sideways scroll, artwork that stays inside
+       * its box) and `stream.spec.js` is the page the report was about. Running
+       * the WebDAV and pdf.js paths a third time would buy nothing and cost CI
+       * several minutes.
+       */
+      name: 'webkit-iphone',
+      use: { ...devices['iPhone 14'] },
+      testMatch: /(ux|stream)\.spec\.js/,
+    },
   ],
 });

@@ -11,8 +11,11 @@ import { sortUpcoming, taskEvents, undatedOpenCount, upcomingTasks } from '../li
  * her previous sitting badged New. Above it: what is coming, the open tasks'
  * due dates, furthest away at the top and overdue right above the line. `/`
  * links here as `/#today`, so she opens on the line with the future above her
- * thumb and the past below it -- and that anchor is the whole mechanism, no
- * JavaScript involved.
+ * thumb and the past below it -- and that anchor is the mechanism, working with
+ * scripting off. It only fails where there is no fragment to answer: a bookmark
+ * or a home-screen icon opens plain `/`, and a redirect cannot add one (the
+ * browser never sends it, so `Location: /#today` would loop). That case is
+ * public/stream.js, which scrolls to Today on load and nothing else.
  *
  * IT IS A HIGHLIGHT, NOT A FILTER, and that is the whole design. The section
  * this replaced compared two timestamps and showed only what fell between

@@ -11,11 +11,17 @@
 #}
 
 {% macro tile_body(tile) %}
+  {#
+    `width`/`height` for the same reason as in _stream.njk: the stylesheet sizes
+    both of these, and these attributes are the sizes a browser has if it never
+    arrives. Without them an <img> of a viewBox-only SVG has no intrinsic size
+    at all and renders at 300px.
+  #}
   <span class="tile__thumb">
     {% if tile.previewUrl %}
-      <img class="tile__preview" src="{{ tile.previewUrl }}" alt="Preview of {{ tile.name }}" loading="lazy" />
+      <img class="tile__preview" src="{{ tile.previewUrl }}" width="320" height="144" alt="Preview of {{ tile.name }}" loading="lazy" />
     {% else %}
-      <img class="tile__icon" src="{{ tile.icon }}" alt="" aria-hidden="true" />
+      <img class="tile__icon" src="{{ tile.icon }}" width="64" height="64" alt="" aria-hidden="true" />
     {% endif %}
   </span>
   <span class="tile__text">

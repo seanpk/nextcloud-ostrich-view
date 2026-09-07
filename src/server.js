@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -14,6 +14,7 @@ import { createClient } from './nextcloud/client.js';
 import { createPreviewCache } from './nextcloud/previews.js';
 import { createVisitStore } from './store/visits.js';
 import { createTasksSeenStore } from './store/tasks-seen.js';
+import { computeAssetVersion } from './lib/asset-version.js';
 import { createTtlCache } from './lib/stream.js';
 import { InvalidPathError } from './lib/paths.js';
 import { NC_UNREACHABLE, NextcloudError } from './nextcloud/client.js';
@@ -28,20 +29,15 @@ const VIEWS_DIR = join(HERE, 'views');
 const PUBLIC_DIR = join(HERE, '..', 'public');
 
 /**
- * Cache-busts `/public/` assets referenced from templates (`?v=`). `/public/`
- * is served with `maxAge: 7d` in production, so without this a phone that
- * loaded the page once could run a week-old stylesheet or script against
- * freshly deployed HTML. Falls back to the current time if package.json is
- * somehow unreadable, which still cache-busts -- it just also does so on
- * every restart instead of only on a version bump.
+ * Cache-busts `/public/` assets referenced from templates (`?v=`).
+ *
+ * A content hash of the assets themselves, not a version number somebody has
+ * to remember to bump -- see src/lib/asset-version.js for the deploy this got
+ * wrong and why a human-maintained number cannot be trusted with a 7-day
+ * `maxAge`. Everything the templates link to lives either directly in
+ * `public/` (styles.css, login.js, viewer.js, stream.js) or in `public/icons/`.
  */
-const APP_VERSION = (() => {
-  try {
-    return JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8')).version ?? String(Date.now());
-  } catch {
-    return String(Date.now());
-  }
-})();
+const APP_VERSION = computeAssetVersion([PUBLIC_DIR, join(PUBLIC_DIR, 'icons')]);
 
 /** Paths reachable without a session. Everything else redirects to /login. */
 const PUBLIC_ROUTES = new Set(['/login', '/healthz']);

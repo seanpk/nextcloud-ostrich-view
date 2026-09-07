@@ -44,9 +44,11 @@
           Latest links to `/#today`, not to `/`: the stream is one time axis
           with what is coming ABOVE the Today line and the history below it, so
           landing anywhere else means landing on next month's chores and
-          scrolling to find today. The anchor is the whole mechanism -- there is
-          no JavaScript on that page -- and `#today` carries a
-          scroll-margin-top so the fixed bar does not hide the line it lands on.
+          scrolling to find today. The anchor is the mechanism -- `#today`
+          carries a scroll-margin-top so the fixed bar does not hide the line it
+          lands on -- and it works with scripting off. public/stream.js only
+          covers the URLs nobody here writes: a bookmark or a home-screen icon
+          opening plain `/`, with no fragment for the anchor to answer.
         #}
         {% if showToggle %}
           <nav class="toggle" aria-label="Sections">
