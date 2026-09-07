@@ -1,0 +1,279 @@
+import { parentPath, pathSegments } from './paths.js';
+import { toTile } from './tiles.js';
+import { dayDelta, dayName, formatTime } from './dates.js';
+
+/**
+ * The stream ("Latest"), as already-worded strings.
+ *
+ * Pure: it takes entries and a clock and returns a view-model, so the wording,
+ * the grouping and the badges are unit-testable without a Nextcloud or a
+ * browser anywhere near them. The route does the fetching; this decides what
+ * Mom reads.
+ *
+ * THE STREAM IS A HIGHLIGHT, NOT A FILTER. It always shows the recent history
+ * of changes, newest first; rows newer than the viewer's PREVIOUS sitting (see
+ * ../store/visits.js) are flagged `isNew` and nothing else is treated
+ * differently. Filtering by a timestamp -- which is what this page used to do,
+ * as "New since you last looked" -- meant a stamp we had misread emptied the
+ * page. Now a wrong stamp costs a badge.
+ *
+ * ONE TIME AXIS. `buildStream` groups events into days and always produces a
+ * "Today" group, empty if nothing happened today, so the page has a `#today`
+ * anchor whether or not there is anything on it. #3 puts upcoming tasks in
+ * groups ABOVE that line and task-change events among the file rows below it,
+ * which is why an event's shape is deliberately kind-agnostic: `at` and `isNew`
+ * are all this module reads, and everything file-specific lives under `tile`.
+ */
+
+/**
+ * How many (viewer-independent) answers the route keeps in memory.
+ * A ceiling, not a target: today the stream needs exactly one key.
+ */
+export const STREAM_CACHE_MAX = 50;
+
+/**
+ * How long a remembered answer stays usable.
+ *
+ * SHORT ON PURPOSE, AND NOT OPTIONAL. The cache key cannot carry this: the
+ * stream asks Nextcloud the same question on every load, forever ("the newest
+ * 50 files"), so without a TTL the first answer of the process would be the
+ * only one anybody ever saw and a file the owner uploaded a minute ago would
+ * never appear.
+ *
+ * A minute is long enough to absorb pull-to-refresh (and the double load a
+ * phone browser sometimes makes of one), short enough that coming back to the
+ * tab later genuinely asks Nextcloud again.
+ */
+export const STREAM_CACHE_TTL_MS = 60_000;
+
+/** Between folder names in the muted label; matches the crumbs' visual grammar. */
+const FOLDER_SEPARATOR = ' › ';
+
+/**
+ * "Biology 101 › Lectures" -- where this file lives, for a row that is shown
+ * out of context. Files shared at the top level say "Files", the same name the
+ * breadcrumb gives the root now that the folder home lives at /files.
+ *
+ * @param {string} path normalized path of the FILE (not its folder)
+ * @returns {string}
+ */
+export function folderLabelFor(path) {
+  const segments = pathSegments(parentPath(path));
+  return segments.length === 0 ? 'Files' : segments.join(FOLDER_SEPARATOR);
+}
+
+/**
+ * "earlier today" / "yesterday" / "on Fri, Aug 8" -- how the page says when
+ * "last time" was. Deliberately vague about the hour: she is being reminded,
+ * not audited.
+ *
+ * The day is read in the server's zone, which is meant to be the household's --
+ * see TZ in .env.example. A stamp dated in the FUTURE (a clock that jumped, a
+ * hand-edited state file) gets the plain date form rather than "earlier today",
+ * which would be a small lie about a stamp we already know is wrong.
+ *
+ * @param {Date|string|null} value previous visit timestamp
+ * @param {{now?: Date}} [options]
+ * @returns {string|null} null when there is nothing sensible to say
+ */
+export function formatVisitLabel(value, options = {}) {
+  const date = value instanceof Date ? value : value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+
+  const { now = new Date() } = options;
+  const delta = dayDelta(date, now);
+
+  if (delta === 0) return 'earlier today';
+  if (delta === -1) return 'yesterday';
+
+  return `on ${dayName(date, now)}`;
+}
+
+/**
+ * Search results (or walk results) as stream events.
+ *
+ * Each event's `tile` is an ordinary `toTile` tile -- same thumbnail, same
+ * `/view/` link, same "not something we can open" fallback as a folder listing
+ * -- so a stream row and a folder tile can never disagree about what a file is
+ * or where it opens.
+ *
+ * `at` is the file's modification time and is what the whole page is ordered
+ * and grouped by, so an entry without one is dropped rather than guessed at.
+ * (search.js drops those already; this is the second lock on the same door,
+ * because #3 will feed events in from a second source.)
+ *
+ * @param {Array<object>} entries parseMultistatus-shaped
+ * @returns {Array<{kind: 'file', at: Date, tile: object, folderLabel: string}>}
+ */
+export function fileEvents(entries) {
+  const list = entries ?? [];
+  const events = [];
+
+  for (const entry of list) {
+    if (!(entry.lastModified instanceof Date) || Number.isNaN(entry.lastModified.getTime())) {
+      continue;
+    }
+    events.push({
+      kind: 'file',
+      at: entry.lastModified,
+      tile: toTile(entry),
+      folderLabel: folderLabelFor(entry.path),
+    });
+  }
+
+  return events;
+}
+
+/** "Today" / "Yesterday" / "Tomorrow" / "Fri, Aug 8" -- one day, out loud. */
+function dayLabel(date, now) {
+  const delta = dayDelta(date, now);
+  if (delta === 0) return 'Today';
+  if (delta === -1) return 'Yesterday';
+  if (delta === 1) return 'Tomorrow';
+  return dayName(date, now);
+}
+
+/**
+ * Events as the page's view-model: days, newest first, with the rows inside
+ * each day newest first too.
+ *
+ * `days` ALWAYS contains a group for today, with an empty `items` when nothing
+ * happened today -- the template renders that as a bare "Today" divider, which
+ * is what makes `/#today` mean something on a quiet day and what #3 builds
+ * upwards from. It sits below any group dated in the future (a clock that
+ * jumped, or -- from #3 -- a task due later) and above every past group.
+ *
+ * `isNew` is `at > previousVisitAt`, and always false when there is no previous
+ * sitting: a first-ever visit gets the list (which is the point of the page)
+ * but no badges, because "everything the owner has ever shared" is not news.
+ *
+ * `moreLabel` is careful about what it claims. Two things make the true total
+ * unknowable: we only ever fetched `fetchLimit` results, so once that many came
+ * back there may be more behind them; and a fallback walk that hit its bounds
+ * (`truncated`) never saw whole subtrees. Either way the line goes vague rather
+ * than implying the list is complete.
+ *
+ * @param {Array<{kind: string, at: Date, isNew?: boolean}>} events any mix of
+ *   kinds; only `at` (and the `isNew` this function sets) is read here.
+ * @param {{previousVisitAt?: Date|string|null, now?: Date, limit?: number,
+ *          fetchLimit?: number|null, truncated?: boolean}} [options]
+ * @returns {{days: Array<{label: string, isToday: boolean, items: Array<object>}>,
+ *            newCount: number, moreLabel: string|null, total: number}}
+ */
+export function buildStream(events, options = {}) {
+  const {
+    previousVisitAt = null,
+    now = new Date(),
+    limit = null,
+    fetchLimit = null,
+    truncated = false,
+  } = options;
+
+  const all = events ?? [];
+  // Newest first, then bounded: dropping the oldest is the only honest way to
+  // cap a page ordered by time.
+  const sorted = [...all].sort((a, b) => b.at.getTime() - a.at.getTime());
+  const kept = limit === null ? sorted : sorted.slice(0, Math.max(0, limit));
+
+  const previousMs = visitMs(previousVisitAt);
+  let newCount = 0;
+
+  const days = [];
+  let currentDay = null;
+  for (const event of kept) {
+    const isNew = previousMs !== null && event.at.getTime() > previousMs;
+    if (isNew) newCount += 1;
+
+    const delta = dayDelta(event.at, now);
+    if (currentDay === null || currentDay.delta !== delta) {
+      currentDay = {
+        label: dayLabel(event.at, now),
+        delta,
+        isToday: delta === 0,
+        items: [],
+      };
+      days.push(currentDay);
+    }
+    currentDay.items.push({ ...event, isNew, timeLabel: formatTime(event.at) });
+  }
+
+  if (!days.some((day) => day.isToday)) {
+    // The Today line goes below anything dated ahead of now and above the
+    // history, which is where `delta` puts it: groups are already in
+    // descending delta order.
+    const index = days.findIndex((day) => day.delta < 0);
+    const today = { label: 'Today', delta: 0, isToday: true, items: [] };
+    days.splice(index === -1 ? days.length : index, 0, today);
+  }
+
+  const uncertain = truncated || (fetchLimit !== null && all.length >= fetchLimit);
+
+  return {
+    days,
+    newCount,
+    // Deliberately not a count. There is no cap for the page to overflow any
+    // more -- only the bound on what we fetched -- so the honest thing to say
+    // is that the list has an end and the history does not.
+    moreLabel: uncertain ? "Older changes aren't listed here." : null,
+    total: all.length,
+  };
+}
+
+/** A previous-visit stamp as milliseconds, or null if there is nothing usable. */
+function visitMs(value) {
+  if (value === null || value === undefined) return null;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * The route's short-lived memory of what it last found, held for
+ * STREAM_CACHE_TTL_MS.
+ *
+ * The stream asks the same question on every load, and pull-to-refresh is the
+ * single most likely thing Mom does on this page. Deduplicating that burst is
+ * all this is for, which is why the entries expire: the question is stable
+ * forever, but the ANSWER is only stable for as long as nobody uploads
+ * anything, and those are not the same span at all. See STREAM_CACHE_TTL_MS.
+ *
+ * Keys are the caller's business (the stream uses one constant; #3 will want a
+ * second for the task half). Failures are never stored: the caller only calls
+ * `set` once it has an answer worth keeping.
+ *
+ * @param {{max?: number, ttlMs?: number, now?: () => number}} [options]
+ *   now: clock, injectable so expiry can be tested without waiting a minute.
+ */
+export function createTtlCache({
+  max = STREAM_CACHE_MAX,
+  ttlMs = STREAM_CACHE_TTL_MS,
+  now = Date.now,
+} = {}) {
+  // Insertion-ordered, so the oldest key is simply the first one.
+  const entries = new Map();
+
+  return {
+    get size() {
+      return entries.size;
+    },
+
+    get(key) {
+      const held = entries.get(key);
+      if (held === undefined) return undefined;
+
+      if (now() - held.storedAt >= ttlMs) {
+        // Stale: drop it rather than leave it to be re-checked on every load,
+        // and let the caller ask Nextcloud the question again.
+        entries.delete(key);
+        return undefined;
+      }
+      return held.value;
+    },
+
+    set(key, value) {
+      entries.delete(key);
+      entries.set(key, { value, storedAt: now() });
+      while (entries.size > max) entries.delete(entries.keys().next().value);
+      return value;
+    },
+  };
+}
