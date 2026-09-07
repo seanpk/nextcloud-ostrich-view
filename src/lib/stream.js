@@ -1,6 +1,6 @@
 import { parentPath, pathSegments } from './paths.js';
 import { toTile } from './tiles.js';
-import { dayDelta, dayName, formatTime } from './dates.js';
+import { MS_PER_DAY, civilDay, dayDelta, dayName, formatDay, formatTime } from './dates.js';
 
 /**
  * The stream ("Latest"), as already-worded strings.
@@ -19,10 +19,18 @@ import { dayDelta, dayName, formatTime } from './dates.js';
  *
  * ONE TIME AXIS. `buildStream` groups events into days and always produces a
  * "Today" group, empty if nothing happened today, so the page has a `#today`
- * anchor whether or not there is anything on it. #3 puts upcoming tasks in
- * groups ABOVE that line and task-change events among the file rows below it,
- * which is why an event's shape is deliberately kind-agnostic: `at` and `isNew`
- * are all this module reads, and everything file-specific lives under `tile`.
+ * anchor whether or not there is anything on it. Task changes (see
+ * ./stream-tasks.js) arrive as events of another kind and sort in among the
+ * file rows by time alone -- which is why an event's shape is deliberately
+ * kind-agnostic: `at` and `isNew` are all this module reads, and everything
+ * file-specific lives under `tile`.
+ *
+ * ...AND WHAT IS COMING SITS ABOVE IT. `buildTimeline` puts the open tasks'
+ * due dates in day groups ABOVE the Today line and the history below it, so
+ * the whole page reads downwards as one axis: next month, then this
+ * afternoon, then the line, then yesterday. Nothing above the line is
+ * something that HAPPENED, which is why it is built separately rather than
+ * fed through `buildStream` as events with dates in the future.
  */
 
 /**
@@ -216,6 +224,95 @@ export function buildStream(events, options = {}) {
     // is that the list has an end and the history does not.
     moreLabel: uncertain ? "Older changes aren’t listed here." : null,
     total: all.length,
+  };
+}
+
+/**
+ * A day heading for the block above the line, from a civil-day number.
+ *
+ * The block's rows are due dates, and a due date is a calendar DAY (a date-only
+ * DUE is pinned to UTC midnight; a timed one is an instant in the household's
+ * zone), so `upcomingTasks` hands over the comparable civil day it sorted by
+ * and this names it. Formatting that number back in UTC is what keeps "Sep 9"
+ * from becoming "Sep 8" west of Greenwich.
+ *
+ * Two labels deliberately differ from the history's vocabulary:
+ *  - today's group says "Due today", not "Today" -- there is already a Today
+ *    line on this page, it is the divider below, and two headings reading
+ *    "Today" would make the axis unreadable (and `#today` ambiguous);
+ *  - anything late says "Overdue", one group for all of it, sitting directly
+ *    above the line. Every row in it still says which day it was due.
+ */
+function dueDayLabel(civilMs, now) {
+  const delta = Math.round((civilMs - civilDay(now, false)) / MS_PER_DAY);
+  if (delta < 0) return 'Overdue';
+  if (delta === 0) return 'Due today';
+  if (delta === 1) return 'Tomorrow';
+
+  const day = new Date(civilMs);
+  return formatDay(day, { utc: true, withYear: day.getUTCFullYear() !== now.getFullYear() });
+}
+
+/**
+ * The whole page: what is coming, the line, and what happened.
+ *
+ * `future` is the block above the Today line -- the open tasks' due dates,
+ * grouped by day, furthest away first, with everything late collapsed into one
+ * "Overdue" group at the bottom of the block (i.e. immediately above the line,
+ * where the eye lands). `days` is the history from `buildStream`, unchanged and
+ * still carrying the `#today` anchor, so the template above and below the line
+ * is the same template it was before tasks existed.
+ *
+ * `undatedLabel` is the one line that stands in for tasks with no due date at
+ * all: they are not on a timeline and cannot be placed on this axis, but a
+ * block above Today that quietly omitted them would read as "everything she has
+ * to do".
+ *
+ * `moreUpcomingLabel` only appears if the future block itself had to be capped,
+ * which needs an implausible number of dated open tasks; the soonest are kept,
+ * because those are the ones the line is about.
+ *
+ * @param {{upcoming?: Array<object>, history: object, undatedCount?: number,
+ *          now?: Date, limit?: number|null}} options
+ *   history: a `buildStream` result. upcoming: rows from `upcomingTasks`,
+ *   already ordered furthest-first.
+ * @returns {{future: Array<{label: string, isOverdue: boolean, items: Array<object>}>,
+ *            undatedLabel: string|null, moreUpcomingLabel: string|null,
+ *            days: Array<object>, newCount: number, moreLabel: string|null,
+ *            total: number}}
+ */
+export function buildTimeline(options) {
+  const { upcoming = [], history, undatedCount = 0, now = new Date(), limit = null } = options;
+
+  // Capping keeps the SOONEST, so it drops from the top of the block: the rows
+  // nearest the line are the ones the reader came for, and the note that goes
+  // with them says where the rest live.
+  const capped =
+    limit === null || upcoming.length <= limit ? upcoming : upcoming.slice(upcoming.length - limit);
+
+  const future = [];
+  let group = null;
+  for (const item of capped) {
+    const civil = item.order.day;
+    // One group per day, except the overdue ones, which share a single group
+    // however many days late they are.
+    const label = dueDayLabel(civil, now);
+    const isOverdue = label === 'Overdue';
+    if (group === null || (isOverdue ? !group.isOverdue : group.civil !== civil)) {
+      group = { label, civil, isOverdue, items: [] };
+      future.push(group);
+    }
+    group.items.push(item);
+  }
+
+  return {
+    ...history,
+    future,
+    undatedLabel:
+      undatedCount > 0
+        ? `Also ${undatedCount} task${undatedCount === 1 ? '' : 's'} without a due date`
+        : null,
+    moreUpcomingLabel: capped.length < upcoming.length ? 'Later tasks are in Tasks.' : null,
   };
 }
 
