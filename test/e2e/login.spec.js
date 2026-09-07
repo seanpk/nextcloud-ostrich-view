@@ -28,17 +28,28 @@ test.describe('Signing in', () => {
     await expect(page.getByLabel('Your passphrase')).toBeVisible();
   });
 
-  test('the correct passphrase lands on home with the shared folders as buttons', async ({ page }) => {
+  test('the correct passphrase lands on Latest, with the three-way toggle', async ({ page }) => {
     await login(page);
 
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Hello, Mom');
 
+    // The stream, not the folders: what has changed is what she came for.
+    await expect(page.locator('.stream__name').first()).toBeVisible();
+    await expect(page.locator('#today')).toHaveText('Today');
+    await expect(page.locator('.toggle__option.is-current')).toHaveText('Latest');
+  });
+
+  test('and Files is one tap away, with the shared folders as buttons', async ({ page }) => {
+    await login(page);
+    await page.locator('.toggle').getByRole('link', { name: 'Files' }).click();
+
+    await expect(page).toHaveURL(/\/files$/);
     for (const folder of ['Biology 101', 'Math 210', 'Café Notes']) {
       await expect(page.getByRole('link', { name: folder })).toBeVisible();
     }
 
-    // Folders come before files, and files aren't links yet in M1.
+    // Folders come before files, and a file we cannot open is a plain label.
     const tileNames = await page.locator('.tile__name').allTextContents();
     assertFoldersFirst(tileNames, ['Biology 101', 'Café Notes', 'Math 210']);
     await expect(page.locator('.tile--static', { hasText: 'welcome.txt' })).toBeVisible();
@@ -59,7 +70,7 @@ test.describe('Signing in', () => {
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test('visiting /login while already signed in goes straight home', async ({ page }) => {
+  test('visiting /login while already signed in goes straight to Latest', async ({ page }) => {
     await login(page);
     await page.goto('/login');
     await expect(page).toHaveURL(/\/$/);
@@ -109,7 +120,7 @@ test.describe('Without a session', () => {
     await expect(page.getByLabel('Your passphrase')).toBeVisible();
   });
 
-  test('the home page redirects to /login', async ({ page }) => {
+  test('the stream redirects to /login', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/\/login$/);
   });

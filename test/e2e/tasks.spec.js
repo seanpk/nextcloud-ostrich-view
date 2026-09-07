@@ -12,17 +12,18 @@ import { ESSAY_DUE_YMD } from '../mock-nextcloud/calendars.js';
 
 const SCHOOL = '/tasks/school-tasks';
 
-test.describe('Files / Tasks toggle', () => {
+test.describe('Latest / Files / Tasks toggle', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
   });
 
-  test('home offers both sections, with Files as the one you are on', async ({ page }) => {
+  test('the landing page offers all three sections, with Latest as the one you are on', async ({ page }) => {
     const toggle = page.locator('.toggle');
     await expect(toggle).toBeVisible();
-    await expect(toggle.getByRole('link', { name: 'Files' })).toBeVisible();
-    await expect(toggle.getByRole('link', { name: 'Tasks' })).toBeVisible();
-    await expect(page.locator('.toggle__option.is-current')).toHaveText('Files');
+    for (const section of ['Latest', 'Files', 'Tasks']) {
+      await expect(toggle.getByRole('link', { name: section })).toBeVisible();
+    }
+    await expect(page.locator('.toggle__option.is-current')).toHaveText('Latest');
   });
 
   test('tapping Tasks shows the shared task lists and nothing else', async ({ page }) => {
@@ -39,12 +40,21 @@ test.describe('Files / Tasks toggle', () => {
     await expect(page.locator('.tiles__item')).toHaveCount(2);
   });
 
-  test('and tapping Files again comes straight back', async ({ page }) => {
+  test('and tapping Files gets the folders, from the task side', async ({ page }) => {
     await page.goto('/tasks');
     await page.locator('.toggle').getByRole('link', { name: 'Files' }).click();
 
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/files$/);
     await expect(page.getByRole('link', { name: 'Biology 101' })).toBeVisible();
+  });
+
+  test('and tapping Latest comes back to the stream, from anywhere', async ({ page }) => {
+    for (const path of ['/files', '/files/Biology%20101', '/tasks', '/tasks/school-tasks']) {
+      await page.goto(path);
+      await page.locator('.toggle').getByRole('link', { name: 'Latest' }).click();
+      await expect(page, `Latest from ${path}`).toHaveURL(/\/$/);
+      await expect(page.locator('#today')).toHaveText('Today');
+    }
   });
 
   /**
@@ -53,6 +63,7 @@ test.describe('Files / Tasks toggle', () => {
    * top bar spilling off the side.
    */
   for (const [name, path] of [
+    ['the files page', '/files'],
     ['a folder', '/files/Biology%20101'],
     ['a deep folder', '/files/Biology%20101/Lectures'],
     ['the file viewer', '/view/Biology%20101/Lectures/cell%20diagram.png'],
@@ -196,7 +207,7 @@ test.describe('Getting around', () => {
     await login(page);
   });
 
-  test('Back walks a task list -> the lists -> home', async ({ page }) => {
+  test('Back walks a task list -> the lists -> the stream', async ({ page }) => {
     await page.goto('/tasks');
     await page.getByRole('link', { name: 'School Tasks' }).click();
     await expect(page).toHaveURL(/\/tasks\/school-tasks$/);

@@ -56,8 +56,8 @@ export default async function globalSetup() {
   process.env.OSTRICH_BASE_URL = `http://127.0.0.1:${port}`;
   process.env.OSTRICH_MOCK_URL = mockUrl;
   // Exported so a spec can reach into `state.json` and pretend a viewer was
-  // last here days ago -- the only way to exercise "New since you last looked"
-  // without waiting out the six-hour visit window. See new-since.spec.js.
+  // last here days ago -- the only way to exercise the stream's New badges
+  // without waiting out the visit window. See stream.spec.js.
   process.env.OSTRICH_DATA_DIR = dataDir;
 
   // Returned function runs as global teardown.

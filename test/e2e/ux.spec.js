@@ -12,10 +12,11 @@ const MIN_TAP = 44; // px -- the WCAG/Apple floor. Our design aims far above it.
 
 /** Every visible thing you can tap or click. */
 const INTERACTIVE =
-  'a.tile, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
+  'a.tile, a.stream__row, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
 
 const PAGES = [
-  { name: 'home', path: '/', needsLogin: true },
+  { name: 'the stream', path: '/', needsLogin: true },
+  { name: 'the files page', path: '/files', needsLogin: true },
   { name: 'a folder', path: '/files/Biology%20101', needsLogin: true },
   { name: 'a deep folder', path: '/files/Biology%20101/Lectures', needsLogin: true },
   { name: 'a photo', path: '/view/Biology%20101/Lectures/cell%20diagram.png', needsLogin: true },
@@ -60,6 +61,66 @@ for (const target of PAGES) {
     );
   });
 }
+
+test('the three-way toggle fits, and stays tappable, at 360px', async ({
+  browser,
+  baseURL,
+  extraHTTPHeaders,
+}) => {
+  // The narrowest phone this app is designed for. Three options plus a Back
+  // button is the tightest the top bar ever gets, and it is why the toggle's
+  // padding and type size are fluid rather than fixed (see styles.css).
+  //
+  // A context of its own, because the viewport is the whole point -- and it
+  // carries this test's synthetic client IP too, or its login would spend the
+  // per-IP budget that belongs to 127.0.0.1 (see fixtures.js).
+  const context = await browser.newContext({
+    viewport: { width: 360, height: 740 },
+    baseURL,
+    extraHTTPHeaders,
+  });
+  const narrow = await context.newPage();
+  try {
+    await login(narrow);
+    // A folder page: the toggle AND the Back button, which is the worst case.
+    await narrow.goto('/files/Biology%20101');
+
+    const options = narrow.locator('.toggle__option');
+    await expect(options).toHaveCount(3);
+    expect(await options.allTextContents()).toEqual(['Latest', 'Files', 'Tasks']);
+
+    for (const option of await options.all()) {
+      const box = await option.boundingBox();
+      expect(box.height, `height of "${await option.innerText()}"`).toBeGreaterThanOrEqual(MIN_TAP);
+      expect(box.width, `width of "${await option.innerText()}"`).toBeGreaterThanOrEqual(MIN_TAP);
+    }
+
+    // Everything in the bar is inside the viewport, not clipped off the edge --
+    // and on ONE row beside Back, rather than wrapping onto a second and
+    // stealing a chunk of a phone screen for chrome.
+    const bar = await narrow.locator('.topbar__inner').boundingBox();
+    const back = await narrow.locator('.back').boundingBox();
+    const last = await options.last().boundingBox();
+    expect(last.x + last.width).toBeLessThanOrEqual(bar.x + bar.width + 1);
+    expect(last.x, 'the toggle must sit beside Back, not under it').toBeGreaterThan(
+      back.x + back.width
+    );
+    for (const option of await options.all()) {
+      const box = await option.boundingBox();
+      expect(box.y, 'one row').toBeCloseTo(back.y, 0);
+    }
+
+    const { scrollWidth, clientWidth } = await narrow.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth, 'the top bar must not push the page sideways').toBeLessThanOrEqual(
+      clientWidth + 1
+    );
+  } finally {
+    await context.close();
+  }
+});
 
 test('the Back button stays put while the page scrolls', async ({ page }) => {
   await login(page);

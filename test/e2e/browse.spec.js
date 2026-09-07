@@ -1,7 +1,13 @@
 import { test, expect, login } from './fixtures.js';
 
+/**
+ * Browsing, from the Files page down. Login lands on the stream now, so every
+ * test here starts by tapping across to Files -- which is also the walk she
+ * actually takes.
+ */
 test.beforeEach(async ({ page }) => {
   await login(page);
+  await page.goto('/files');
 });
 
 test.describe('Browsing folders', () => {
@@ -28,12 +34,20 @@ test.describe('Browsing folders', () => {
     await page.getByRole('link', { name: /Back/ }).click();
     await expect(page).toHaveURL(/\/files\/Biology%20101$/);
 
+    // And the chain ends among the folders, not on the stream: backing out of
+    // Biology 101 should leave her looking at Files.
+    await page.getByRole('link', { name: /Back/ }).click();
+    await expect(page).toHaveURL(/\/files$/);
+
+    // One more step, and only now is she at the top of the app.
     await page.getByRole('link', { name: /Back/ }).click();
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test('the Back button is present on every folder page and absent on home', async ({ page }) => {
-    await expect(page.locator('.back'), 'no Back on home').toHaveCount(0);
+  test('the Back button is present on every folder page, and on Files itself', async ({ page }) => {
+    // Files is a section now rather than the root, so it has somewhere to go
+    // back to -- the stream. Only the stream and login have nowhere.
+    await expect(page.getByRole('link', { name: /Back/ })).toBeVisible();
 
     await page.getByRole('link', { name: 'Math 210' }).click();
     await expect(page.getByRole('link', { name: /Back/ })).toBeVisible();
@@ -47,7 +61,8 @@ test.describe('Browsing folders', () => {
 
     const crumbs = page.locator('.crumbs');
     await expect(crumbs).toBeVisible();
-    await expect(crumbs).toContainText('Home');
+    // The trail's root is Files, which is where the folder actually sits.
+    await expect(crumbs).toContainText('Files');
     await expect(crumbs).toContainText('Biology 101');
     await expect(crumbs).toContainText('Lectures');
 
@@ -63,7 +78,7 @@ test.describe('Browsing folders', () => {
     await expect(page).toHaveURL(/\/files\/Biology%20101$/);
   });
 
-  test('home has no breadcrumb at all', async ({ page }) => {
+  test('the Files page has no breadcrumb at all', async ({ page }) => {
     await expect(page.locator('.crumbs')).toHaveCount(0);
   });
 
@@ -123,15 +138,15 @@ test.describe('Browsing folders', () => {
     await expect(page.locator('body')).not.toContainText('root:');
   });
 
-  test('/files with no path is just home', async ({ page }) => {
-    await page.goto('/files');
-    await expect(page).toHaveURL(/\/$/);
+  test('/files/ with a trailing slash is the same page, not a redirect loop', async ({ page }) => {
+    await page.goto('/files/');
+    await expect(page.getByRole('heading', { name: 'Folders' })).toBeVisible();
   });
 
-  test('the home page shows only what was shared, never the account\'s own skeleton content', async ({
+  test('the Files page shows only what was shared, never the account\'s own skeleton content', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/files');
 
     for (const shared of ['Biology 101', 'Math 210', 'Café Notes']) {
       await expect(page.getByRole('link', { name: shared })).toBeVisible();
