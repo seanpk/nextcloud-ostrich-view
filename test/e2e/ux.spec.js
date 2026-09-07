@@ -12,7 +12,7 @@ const MIN_TAP = 44; // px -- the WCAG/Apple floor. Our design aims far above it.
 
 /** Every visible thing you can tap or click. */
 const INTERACTIVE =
-  'a.tile, a.stream__row, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
+  'a.tile, a.stream__row, .stream__undated a, a.back, .btn, .footer__logout, .toggle__option, .login__input, .login__reveal, .viewer__fs';
 
 const PAGES = [
   { name: 'the stream', path: '/', needsLogin: true },

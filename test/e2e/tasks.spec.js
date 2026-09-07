@@ -52,8 +52,11 @@ test.describe('Latest / Files / Tasks toggle', () => {
     for (const path of ['/files', '/files/Biology%20101', '/tasks', '/tasks/school-tasks']) {
       await page.goto(path);
       await page.locator('.toggle').getByRole('link', { name: 'Latest' }).click();
-      await expect(page, `Latest from ${path}`).toHaveURL(/\/$/);
+      // The Today line, which is where the toggle points: the page is one time
+      // axis, and the top of it is next month.
+      await expect(page, `Latest from ${path}`).toHaveURL(/\/#today$/);
       await expect(page.locator('#today')).toHaveText('Today');
+      await expect(page.locator('#today')).toBeInViewport();
     }
   });
 
@@ -189,8 +192,9 @@ test.describe('A task list', () => {
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Chores');
     expect(await page.locator('.section--todo .task__title').allTextContents()).toEqual([
+      'Water the plants', // three days overdue, so it leads
       'Take the bins out',
-      'Empty the dishwasher',
+      'Empty the dishwasher', // undated, so it trails
     ]);
     // The recycling master is still NEEDS-ACTION; only its override says done.
     expect(await page.locator('.section--done .task__title').allTextContents()).toEqual([

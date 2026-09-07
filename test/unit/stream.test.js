@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildStream,
+  buildTimeline,
   createTtlCache,
   fileEvents,
   folderLabelFor,
@@ -134,7 +135,7 @@ test('buildStream: a year-old day is named with its year, or it is a riddle', ()
 
 test('buildStream: there is always a Today group, empty when nothing happened today', () => {
   // The #today anchor has to exist on a quiet day too -- it is what /#today
-  // means, and what #3 builds upwards from.
+  // means, and what the block of what-is-coming stacks on top of.
   const { days } = buildStream([event('2026-08-08T21:00:00')], { now: NOW });
 
   assert.deepEqual(
@@ -168,7 +169,8 @@ test('buildStream: exactly one group is ever marked today', () => {
 });
 
 test('buildStream: a stamp in the future sits above the Today line, not inside it', () => {
-  // A clock that jumped, or (from #3) a task due later. Either way "Tomorrow"
+  // A clock that jumped: a file cannot really be modified tomorrow. Either
+  // way, "Tomorrow"
   // is not today, and the Today divider belongs underneath it.
   const { days } = buildStream(
     [event('2026-08-10T09:00:00'), event('2026-08-08T09:00:00')],
@@ -232,7 +234,7 @@ test('buildStream: the previous sitting is accepted as the ISO string the store 
   assert.equal(newCount, 1);
 });
 
-// --- Mixed kinds (the seam #3 builds on) ------------------------------------
+// --- Mixed kinds ------------------------------------------------------------
 
 test('buildStream: events of any kind interleave by time alone', () => {
   const { days } = buildStream(
@@ -308,6 +310,134 @@ test('buildStream: a truncated walk that found nothing still says so', () => {
 
   assert.deepEqual(days[0].items, []);
   assert.equal(moreLabel, "Older changes aren’t listed here.");
+});
+
+// --- Above the line: what is coming ------------------------------------------
+
+/** An upcomingTasks-shaped row: what matters here is `order.day`. */
+function upcomingRow(summary, civilDay, extra = {}) {
+  return {
+    kind: 'task-due',
+    at: new Date(civilDay),
+    dueLabel: 'Due whenever',
+    overdue: false,
+    task: { name: 'School Tasks', summary, href: '/tasks/school-tasks' },
+    order: { day: civilDay, time: Number.POSITIVE_INFINITY },
+    ...extra,
+  };
+}
+
+/** The civil day `days` from NOW's day, as upcomingTasks computes it. */
+function dayFromNow(days) {
+  const base = Date.UTC(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
+  return base + days * 86_400_000;
+}
+
+test('buildTimeline: what is coming is grouped by day, furthest away first', () => {
+  const { future, days } = buildTimeline({
+    upcoming: [
+      upcomingRow('Next week', dayFromNow(6)),
+      upcomingRow('Tomorrow', dayFromNow(1)),
+      upcomingRow('Also tomorrow', dayFromNow(1)),
+      upcomingRow('This afternoon', dayFromNow(0)),
+    ],
+    history: buildStream([event('2026-08-09T09:00:00')], { now: NOW }),
+    now: NOW,
+  });
+
+  // Every heading here says "Due", and none of the history's do: that is what
+  // tells a reader moving heading to heading which side of the line they are on.
+  assert.deepEqual(
+    future.map((group) => group.label),
+    ['Due Sat, Aug 15', 'Due tomorrow', 'Due today']
+  );
+  // Two tasks due the same day share one heading.
+  assert.deepEqual(
+    future[1].items.map((item) => item.task.summary),
+    ['Tomorrow', 'Also tomorrow']
+  );
+  // "Due today", not "Today": the Today line is the divider below this block,
+  // and two headings reading Today would make the axis unreadable.
+  assert.ok(!future.some((group) => group.label === 'Today'));
+  // The history is handed through untouched, anchor and all.
+  assert.ok(days.some((day) => day.isToday));
+});
+
+test('buildTimeline: everything late shares one Overdue group, right above the line', () => {
+  const { future } = buildTimeline({
+    upcoming: [
+      upcomingRow('Tomorrow', dayFromNow(1)),
+      upcomingRow('Was due yesterday', dayFromNow(-1), { overdue: true }),
+      upcomingRow('Was due last week', dayFromNow(-8), { overdue: true }),
+    ],
+    history: buildStream([], { now: NOW }),
+    now: NOW,
+  });
+
+  assert.deepEqual(
+    future.map((group) => group.label),
+    ['Due tomorrow', 'Overdue']
+  );
+  assert.equal(future.at(-1).isOverdue, true);
+  assert.deepEqual(
+    future.at(-1).items.map((item) => item.task.summary),
+    ['Was due yesterday', 'Was due last week'],
+    'in the order they were handed over: nearest the line first'
+  );
+});
+
+test('buildTimeline: a due date next year is named with its year', () => {
+  const { future } = buildTimeline({
+    upcoming: [upcomingRow('Far off', Date.UTC(2027, 0, 20))],
+    history: buildStream([], { now: NOW }),
+    now: NOW,
+  });
+
+  assert.equal(future[0].label, 'Due Wed, Jan 20, 2027');
+});
+
+test('buildTimeline: with nothing coming up, there is no block above the line', () => {
+  const { future, undatedLabel, moreUpcomingLabel } = buildTimeline({
+    upcoming: [],
+    history: buildStream([event('2026-08-09T09:00:00')], { now: NOW }),
+    now: NOW,
+  });
+
+  assert.deepEqual(future, []);
+  assert.equal(undatedLabel, null);
+  assert.equal(moreUpcomingLabel, null);
+});
+
+test('buildTimeline: the undated line is counted out loud, and pluralized', () => {
+  const timeline = (undatedCount) =>
+    buildTimeline({ history: buildStream([], { now: NOW }), undatedCount, now: NOW }).undatedLabel;
+
+  assert.equal(timeline(1), 'Also 1 task without a due date');
+  assert.equal(timeline(17), 'Also 17 tasks without a due date');
+  // Nothing to say, so nothing is said -- not "Also 0 tasks".
+  assert.equal(timeline(0), null);
+});
+
+test('buildTimeline: a capped future block keeps the soonest and says where the rest are', () => {
+  const upcoming = [
+    upcomingRow('Furthest', dayFromNow(30)),
+    upcomingRow('Middle', dayFromNow(10)),
+    upcomingRow('Soonest', dayFromNow(1)),
+  ];
+
+  const { future, moreUpcomingLabel } = buildTimeline({
+    upcoming,
+    history: buildStream([], { now: NOW }),
+    limit: 2,
+    now: NOW,
+  });
+
+  assert.deepEqual(
+    future.flatMap((group) => group.items.map((item) => item.task.summary)),
+    ['Middle', 'Soonest'],
+    'the rows nearest the line are the ones she came for'
+  );
+  assert.equal(moreUpcomingLabel, 'Later tasks are in Tasks.');
 });
 
 // --- The "when were you last here" note --------------------------------------

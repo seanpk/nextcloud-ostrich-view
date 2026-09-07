@@ -40,10 +40,17 @@
           styles.css) and the brand text steps aside wherever the toggle shows.
           ux.spec.js asserts both the 44px floor and the no-sideways-scroll rule
           on every page, which is what keeps that honest.
+
+          Latest links to `/#today`, not to `/`: the stream is one time axis
+          with what is coming ABOVE the Today line and the history below it, so
+          landing anywhere else means landing on next month's chores and
+          scrolling to find today. The anchor is the whole mechanism -- there is
+          no JavaScript on that page -- and `#today` carries a
+          scroll-margin-top so the fixed bar does not hide the line it lands on.
         #}
         {% if showToggle %}
           <nav class="toggle" aria-label="Sections">
-            <a class="toggle__option {{ 'is-current' if section == 'latest' }}" href="/">Latest</a>
+            <a class="toggle__option {{ 'is-current' if section == 'latest' }}" href="/#today">Latest</a>
             <a class="toggle__option {{ 'is-current' if section == 'files' }}" href="/files">Files</a>
             <a class="toggle__option {{ 'is-current' if section == 'tasks' }}" href="/tasks">Tasks</a>
           </nav>

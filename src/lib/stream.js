@@ -1,6 +1,6 @@
 import { parentPath, pathSegments } from './paths.js';
 import { toTile } from './tiles.js';
-import { dayDelta, dayName, formatTime } from './dates.js';
+import { MS_PER_DAY, civilDay, dayDelta, dayName, formatDay, formatTime } from './dates.js';
 
 /**
  * The stream ("Latest"), as already-worded strings.
@@ -19,10 +19,18 @@ import { dayDelta, dayName, formatTime } from './dates.js';
  *
  * ONE TIME AXIS. `buildStream` groups events into days and always produces a
  * "Today" group, empty if nothing happened today, so the page has a `#today`
- * anchor whether or not there is anything on it. #3 puts upcoming tasks in
- * groups ABOVE that line and task-change events among the file rows below it,
- * which is why an event's shape is deliberately kind-agnostic: `at` and `isNew`
- * are all this module reads, and everything file-specific lives under `tile`.
+ * anchor whether or not there is anything on it. Task changes (see
+ * ./stream-tasks.js) arrive as events of another kind and sort in among the
+ * file rows by time alone -- which is why an event's shape is deliberately
+ * kind-agnostic: `at` and `isNew` are all this module reads, and everything
+ * file-specific lives under `tile`.
+ *
+ * ...AND WHAT IS COMING SITS ABOVE IT. `buildTimeline` puts the open tasks'
+ * due dates in day groups ABOVE the Today line and the history below it, so
+ * the whole page reads downwards as one axis: next month, then this
+ * afternoon, then the line, then yesterday. Nothing above the line is
+ * something that HAPPENED, which is why it is built separately rather than
+ * fed through `buildStream` as events with dates in the future.
  */
 
 /**
@@ -100,7 +108,7 @@ export function formatVisitLabel(value, options = {}) {
  * `at` is the file's modification time and is what the whole page is ordered
  * and grouped by, so an entry without one is dropped rather than guessed at.
  * (search.js drops those already; this is the second lock on the same door,
- * because #3 will feed events in from a second source.)
+ * because the task events beside these come in from a second source.)
  *
  * @param {Array<object>} entries parseMultistatus-shaped
  * @returns {Array<{kind: 'file', at: Date, tile: object, folderLabel: string}>}
@@ -139,17 +147,19 @@ function dayLabel(date, now) {
  *
  * `days` ALWAYS contains a group for today, with an empty `items` when nothing
  * happened today -- the template renders that as a bare "Today" divider, which
- * is what makes `/#today` mean something on a quiet day and what #3 builds
- * upwards from. It sits below any group dated in the future (a clock that
- * jumped, or -- from #3 -- a task due later) and above every past group.
+ * is what makes `/#today` mean something on a quiet day and what
+ * `buildTimeline` stacks what is coming on top of. It sits below any group
+ * dated in the future (a clock that jumped) and above every past group.
  *
  * `isNew` is `at > previousVisitAt`, and always false when there is no previous
  * sitting: a first-ever visit gets the list (which is the point of the page)
  * but no badges, because "everything the owner has ever shared" is not news.
  *
  * `moreLabel` is careful about what it claims. Two things make the true total
- * unknowable: we only ever fetched `fetchLimit` results, so once that many came
- * back there may be more behind them; and a fallback walk that hit its bounds
+ * unknowable: once `fetchLimit` events came back there may be more behind them
+ * -- the file search fetched at most that many, and the page shows at most that
+ * many of the file rows and task rows combined, so either bound firing means
+ * something older was left off; and a fallback walk that hit its bounds
  * (`truncated`) never saw whole subtrees. Either way the line goes vague rather
  * than implying the list is complete.
  *
@@ -219,6 +229,102 @@ export function buildStream(events, options = {}) {
   };
 }
 
+/**
+ * A day heading for the block above the line, from a civil-day number.
+ *
+ * The block's rows are due dates, and a due date is a calendar DAY (a date-only
+ * DUE is pinned to UTC midnight; a timed one is an instant in the household's
+ * zone), so `upcomingTasks` hands over the comparable civil day it sorted by
+ * and this names it. Formatting that number back in UTC is what keeps "Sep 9"
+ * from becoming "Sep 8" west of Greenwich.
+ *
+ * EVERY LABEL HERE SAYS "DUE", and the history's labels never do. That is what
+ * keeps the two halves apart for a reader who cannot see the page: someone
+ * moving heading to heading with a screen reader hears "Due Sat, Sep 12",
+ * "Due tomorrow", "Overdue", then "Today", "Yesterday", "Fri, Aug 8" -- each
+ * one saying which side of the line it is on, without a "what is coming"
+ * heading having to be announced first.
+ *
+ * Two labels differ from the history's vocabulary for a second reason too:
+ *  - today's group says "Due today", not "Today" -- there is already a Today
+ *    line on this page, it is the divider below, and two headings reading
+ *    "Today" would make the axis unreadable (and `#today` ambiguous);
+ *  - anything late says "Overdue", one group for all of it, sitting directly
+ *    above the line. Every row in it still says which day it was due.
+ */
+function dueDayLabel(civilMs, now) {
+  const delta = Math.round((civilMs - civilDay(now, false)) / MS_PER_DAY);
+  if (delta < 0) return 'Overdue';
+  if (delta === 0) return 'Due today';
+  if (delta === 1) return 'Due tomorrow';
+
+  const day = new Date(civilMs);
+  return `Due ${formatDay(day, { utc: true, withYear: day.getUTCFullYear() !== now.getFullYear() })}`;
+}
+
+/**
+ * The whole page: what is coming, the line, and what happened.
+ *
+ * `future` is the block above the Today line -- the open tasks' due dates,
+ * grouped by day, furthest away first, with everything late collapsed into one
+ * "Overdue" group at the bottom of the block (i.e. immediately above the line,
+ * where the eye lands). `days` is the history from `buildStream`, unchanged and
+ * still carrying the `#today` anchor, so the template above and below the line
+ * is the same template it was before tasks existed.
+ *
+ * `undatedLabel` is the one line that stands in for tasks with no due date at
+ * all: they are not on a timeline and cannot be placed on this axis, but a
+ * block above Today that quietly omitted them would read as "everything she has
+ * to do".
+ *
+ * `moreUpcomingLabel` only appears if the future block itself had to be capped,
+ * which needs an implausible number of dated open tasks; the soonest are kept,
+ * because those are the ones the line is about.
+ *
+ * @param {{upcoming?: Array<object>, history: object, undatedCount?: number,
+ *          now?: Date, limit?: number|null}} options
+ *   history: a `buildStream` result. upcoming: rows from `upcomingTasks`,
+ *   already ordered furthest-first.
+ * @returns {{future: Array<{label: string, isOverdue: boolean, items: Array<object>}>,
+ *            undatedLabel: string|null, moreUpcomingLabel: string|null,
+ *            days: Array<object>, newCount: number, moreLabel: string|null,
+ *            total: number}}
+ */
+export function buildTimeline(options) {
+  const { upcoming = [], history, undatedCount = 0, now = new Date(), limit = null } = options;
+
+  // Capping keeps the SOONEST, so it drops from the top of the block: the rows
+  // nearest the line are the ones the reader came for, and the note that goes
+  // with them says where the rest live.
+  const capped =
+    limit === null || upcoming.length <= limit ? upcoming : upcoming.slice(upcoming.length - limit);
+
+  const future = [];
+  let group = null;
+  for (const item of capped) {
+    const civil = item.order.day;
+    // One group per day, except the overdue ones, which share a single group
+    // however many days late they are.
+    const label = dueDayLabel(civil, now);
+    const isOverdue = label === 'Overdue';
+    if (group === null || (isOverdue ? !group.isOverdue : group.civil !== civil)) {
+      group = { label, civil, isOverdue, items: [] };
+      future.push(group);
+    }
+    group.items.push(item);
+  }
+
+  return {
+    ...history,
+    future,
+    undatedLabel:
+      undatedCount > 0
+        ? `Also ${undatedCount} task${undatedCount === 1 ? '' : 's'} without a due date`
+        : null,
+    moreUpcomingLabel: capped.length < upcoming.length ? 'Later tasks are in Tasks.' : null,
+  };
+}
+
 /** A previous-visit stamp as milliseconds, or null if there is nothing usable. */
 function visitMs(value) {
   if (value === null || value === undefined) return null;
@@ -236,9 +342,9 @@ function visitMs(value) {
  * forever, but the ANSWER is only stable for as long as nobody uploads
  * anything, and those are not the same span at all. See STREAM_CACHE_TTL_MS.
  *
- * Keys are the caller's business (the stream uses one constant; #3 will want a
- * second for the task half). Failures are never stored: the caller only calls
- * `set` once it has an answer worth keeping.
+ * Keys are the caller's business (the stream uses two constants: the files it
+ * found, and which task lists are shared). Failures are never stored: the
+ * caller only calls `set` once it has an answer worth keeping.
  *
  * @param {{max?: number, ttlMs?: number, now?: () => number}} [options]
  *   now: clock, injectable so expiry can be tested without waiting a minute.

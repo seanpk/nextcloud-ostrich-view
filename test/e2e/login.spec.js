@@ -31,7 +31,9 @@ test.describe('Signing in', () => {
   test('the correct passphrase lands on Latest, with the three-way toggle', async ({ page }) => {
     await login(page);
 
-    await expect(page).toHaveURL(/\/$/);
+    // On the Today line, not at the top of the page: the stream has what is
+    // coming above the line and the history below it (see routes/auth.js).
+    await expect(page).toHaveURL(/\/#today$/);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Hello, Mom');
 
     // The stream, not the folders: what has changed is what she came for.

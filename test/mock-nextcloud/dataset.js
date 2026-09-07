@@ -34,7 +34,7 @@ import { toSlug } from '../../src/nextcloud/caldav.js';
  *         "displayName": "School",
  *         "color": "#1c4f8b",
  *         "tasks": [
- *           { "summary": "Lab report", "due": "+2d", "percent": 40,
+ *           { "summary": "Lab report", "due": "+2d", "percent": 40, "stamp": "-3d",
  *             "subtasks": [ { "summary": "Collect samples", "due": "+1d" } ] },
  *           { "summary": "Email the professor", "completed": "-1d" }
  *         ]
@@ -64,13 +64,22 @@ import { toSlug } from '../../src/nextcloud/caldav.js';
  * entirely -- it is for a Nextcloud version that omits the properties
  * themselves, which `createMockNextcloud({ shareProps: false })` simulates.
  *
- * TIMES ARE RELATIVE, ON PURPOSE. `lastModified`, `due` and `completed` accept
- * absolute dates, but also an offset from *now* -- `"-3h"`, `"+2d"`, `"-45m"`.
- * A demo dataset with dates baked into it stops being believable the week
- * after it is written: everything is overdue, and "new since you last looked"
- * is permanently empty. Offsets keep a checked-in dataset true forever. Day
- * offsets produce date-only DUEs (a calendar day, which is what a task list is
- * made of); hour and minute offsets produce timestamps.
+ * TIMES ARE RELATIVE, ON PURPOSE. `lastModified`, `due`, `completed` and
+ * `stamp` accept absolute dates, but also an offset from *now* -- `"-3h"`,
+ * `"+2d"`, `"-45m"`. A demo dataset with dates baked into it stops being
+ * believable the week after it is written: everything is overdue, and "new
+ * since you last looked" is permanently empty. Offsets keep a checked-in
+ * dataset true forever. Day offsets produce date-only DUEs (a calendar day,
+ * which is what a task list is made of); hour and minute offsets produce
+ * timestamps.
+ *
+ * `stamp` IS WHEN THE TASK WAS LAST WRITTEN -- the VTODO's DTSTAMP, which is
+ * what the stream dates its "Added" and "Changed" rows by (see
+ * ../../src/lib/stream-tasks.js). It defaults to the completion time for a
+ * finished task and to *now* otherwise, which is right for a fixture and wrong
+ * for a demo: a dataset whose tasks were all written this second puts a dozen
+ * "Added" rows on top of the stream at the same minute. So a demo dataset says
+ * when its tasks were written, the same way it says when its files were.
  *
  * NOTHING IS IGNORED. Every key is either one this loader reads or an error
  * naming it -- a `"subTasks"` or a `"colour"` that were quietly dropped would
@@ -257,6 +266,7 @@ const TASK_KEYS = [
   'percent',
   'status',
   'completed',
+  'stamp',
   'subtasks',
 ];
 const LIST_KEYS = ['displayName', 'uri', 'color', 'tasks'];
@@ -535,17 +545,29 @@ function todoLines(task, { uid, parentUid, where, now }) {
   if (completedAt) lines.push(`COMPLETED:${icsDateTime(completedAt)}`);
   if (status === 'COMPLETED' && percent === null) lines.push('PERCENT-COMPLETE:100');
 
+  // When this task was last written. Ticking a task off rewrites DTSTAMP to the
+  // COMPLETED instant on the real server, so a finished task with nothing said
+  // about it is stamped at its completion rather than at load time.
+  let stampAt = completedAt ?? new Date(now);
+  if (task.stamp !== undefined && task.stamp !== null) {
+    stampAt = moment(task.stamp, { where: `${where}.stamp`, now }).date;
+  }
+  lines.push(`DTSTAMP:${icsDateTime(stampAt)}`);
+
   return lines;
 }
 
-/** One `.ics` resource per task, exactly as a CalDAV server stores them. */
-function icsResource(lines, now) {
+/**
+ * One `.ics` resource per task, exactly as a CalDAV server stores them.
+ * DTSTAMP comes from `todoLines` (see `stamp` there), not from here: the
+ * moment the dataset was loaded is only the right answer by default.
+ */
+function icsResource(lines) {
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Nextcloud Ostrich View//Demo dataset//EN',
     'BEGIN:VTODO',
-    `DTSTAMP:${icsDateTime(new Date(now))}`,
     ...lines,
     'END:VTODO',
     'END:VCALENDAR',
@@ -569,7 +591,7 @@ function collectTodos(tasks, { calendarUri, parentUid, where, now, uids, out }) 
     checkKeys(task, TASK_KEYS, at);
     const uid = `${calendarUri}-${uniqueSlug(task.summary ?? '', `task-${index + 1}`, uids)}`;
 
-    out.push(icsResource(todoLines(task, { uid, parentUid, where: at, now }), now));
+    out.push(icsResource(todoLines(task, { uid, parentUid, where: at, now })));
 
     if (task.subtasks !== undefined) {
       collectTodos(task.subtasks, {

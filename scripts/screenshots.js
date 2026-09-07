@@ -24,8 +24,11 @@ import { startDemo } from './demo.js';
  * The demo seeds a sitting two days ago, so the stream's New badges are on the
  * first shot rather than absent (see scripts/demo.js).
  *
- * The stream comes first because it is what she lands on. `files.png` is the
- * folder page behind the Files toggle, which is where every other shot starts.
+ * The stream comes first because it is what she lands on -- on the Today line,
+ * with what is coming above it and what has happened below, which is why that
+ * shot is taken a little above the anchor rather than exactly on it.
+ * `files.png` is the folder page behind the Files toggle, which is where every
+ * other shot starts.
  */
 
 const OUT = join(fileURLToPath(new URL('..', import.meta.url)), 'docs', 'screenshots');
@@ -56,8 +59,14 @@ async function main() {
     // which is what puts the New badges on the shot below.
     await page.getByLabel('Your passphrase').fill(demo.passphrase);
     await page.getByRole('button', { name: 'Enter' }).click();
-    await page.waitForURL(`${demo.url}/`);
+    // Signing in lands on the Today line, which is where the app puts her.
+    await page.waitForURL(`${demo.url}/#today`);
     await page.waitForLoadState('networkidle');
+    // ...then back up a little, so the shot holds both sides of the line: the
+    // overdue task and the undated line above it, the Today divider, and the
+    // first of the history below. Landing exactly on the anchor would show the
+    // history alone, which is the half this page already had.
+    await page.evaluate(() => window.scrollBy(0, -420));
     await shot('stream');
 
     await page.goto('/files');

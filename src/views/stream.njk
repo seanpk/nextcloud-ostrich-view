@@ -4,10 +4,15 @@
 {#
   Latest -- the page she lands on.
 
-  One time axis, newest first: `days` is a list of day groups, each with a
-  heading and its rows, and the group for today always exists (empty on a quiet
-  day) so that `#today` is a real place on the page. #3 adds groups ABOVE that
-  line for tasks that are coming up; nothing here has to move for it to.
+  ONE TIME AXIS, read downwards. `future` is what is coming: the open tasks'
+  due dates in day groups, furthest away at the top, everything late in one
+  "Overdue" group at the bottom of the block. Then the Today line, which always
+  exists (empty on a quiet day) and carries the `#today` anchor the toggle and
+  the login redirect both point at. Then `days`: what has happened, newest
+  first, files and task changes interleaved by time alone.
+
+  So: scroll up for the future, scroll down for the past, and she arrives on
+  the line between them without a line of JavaScript.
 #}
 
 {% block heading %}
@@ -28,7 +33,39 @@
   {% endif %}
 
   <section class="stream" aria-labelledby="stream-heading">
-    <h2 class="section__title visually-hidden" id="stream-heading">What has changed</h2>
+    <h2 class="section__title visually-hidden" id="stream-heading">What is coming, and what has changed</h2>
+
+    {#
+      Above the line. The cap is implausible for a household (see
+      `moreUpcomingLabel` in src/lib/stream.js) -- but when it bites, the rows
+      that were dropped are the furthest away, so the note goes at the top of
+      the block where they would have been.
+    #}
+    {% if moreUpcomingLabel %}
+      <p class="section__more">{{ moreUpcomingLabel }}</p>
+    {% endif %}
+
+    {% for group in future %}
+      {{ s.due_group(group) }}
+    {% endfor %}
+
+    {#
+      Tasks with no due date have nowhere on a time axis to be, so they get one
+      line instead -- immediately above the Today line, where the block above it
+      ends. It links to Tasks, which is where they can actually be read.
+    #}
+    {% if undatedLabel %}
+      <p class="stream__undated"><a href="/tasks">{{ undatedLabel }}</a></p>
+    {% endif %}
+
+    {#
+      The files are all here; the tasks may not be. Said quietly, and above the
+      history so it is read before the rows it is a caveat about -- never as an
+      error page, because the page she asked for is right here.
+    #}
+    {% if tasksUnavailable %}
+      <p class="section__note section__note--quiet">Tasks couldn’t be checked just now.</p>
+    {% endif %}
 
     {% for day in days %}
       {{ s.day_group(day) }}

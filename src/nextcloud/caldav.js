@@ -333,6 +333,30 @@ export function parseTodoBlob(ics) {
     const percentComplete = toInteger(vtodo.getFirstPropertyValue('percent-complete'));
 
     return {
+      /**
+       * When the task was created, IF its client says so.
+       *
+       * Usually it does not. The household's writer (`PRODID:-//Nextcloud
+       * Tasks Android//EN`, probed 2026-09-07) never emits CREATED, so this is
+       * null for every real task we have seen -- which is exactly why the
+       * stream has a ledger of the UIDs it has met (../store/tasks-seen.js)
+       * rather than trusting this field. Other clients do write it, and when
+       * one has, it beats anything we could infer.
+       */
+      createdAt: toDate(vtodo.getFirstPropertyValue('created')),
+      /**
+       * When this object was last revised -- LAST-MODIFIED if the client keeps
+       * one, else DTSTAMP.
+       *
+       * For a component without a METHOD, RFC 5545 §3.8.7.2 defines DTSTAMP as
+       * the moment the object was created or last revised, which makes it the
+       * honest fallback: Nextcloud Tasks Android writes DTSTAMP and nothing
+       * else, bumping it on every edit (completing a task rewrites it to the
+       * COMPLETED instant -- see the 60s dedupe in ../lib/stream-tasks.js).
+       */
+      stampAt:
+        toDate(vtodo.getFirstPropertyValue('last-modified')) ??
+        toDate(vtodo.getFirstPropertyValue('dtstamp')),
       uid: toText(vtodo.getFirstPropertyValue('uid')),
       // Set only on a recurrence override: which occurrence of the master this
       // component replaces. `parseCalendarQuery` needs it to tell the master
@@ -349,6 +373,10 @@ export function parseTodoBlob(ics) {
       completedAt,
       percentComplete,
       relatedTo: parentUidOf(vtodo),
+      // The resource's ETag, filled in by `parseCalendarQuery` from the REPORT
+      // (a blob on its own has no HTTP identity). Null here so the shape never
+      // depends on where the todo came from.
+      etag: null,
       isCompleted:
         status === 'COMPLETED' || completedAt !== null || percentComplete === 100,
       // Called off rather than finished. Neither section is the right home for
@@ -356,6 +384,23 @@ export function parseTodoBlob(ics) {
       isCancelled: status === 'CANCELLED',
     };
   });
+}
+
+/**
+ * An ETag reduced to the thing we actually compare.
+ *
+ * We never send it back to the server (this app makes no conditional
+ * requests), so the only question ever asked of it is "is this the same string
+ * we stored last time". Weak-validator prefixes and quoting are exactly the
+ * decorations a server is free to vary between responses, and either would
+ * fake a change -- and a faked change is a "Changed" row about a task nobody
+ * touched.
+ */
+function normalizeEtag(value) {
+  if (value === null) return null;
+  const trimmed = String(value).trim().replace(/^W\//i, '');
+  const unquoted = /^"(.*)"$/.exec(trimmed)?.[1] ?? trimmed;
+  return unquoted === '' ? null : unquoted;
 }
 
 /**
@@ -415,9 +460,15 @@ export function parseCalendarQuery(xml) {
   const todos = [];
   const groups = new Map();
   for (const response of asArray(multistatus.response)) {
-    const data = textOf(collectProps(response)['calendar-data']);
+    const props = collectProps(response);
+    const data = textOf(props['calendar-data']);
     if (!data) continue;
-    for (const todo of parseTodoBlob(data)) {
+    // Requested since M3 and, until the stream needed it, thrown away. It is
+    // the cheapest "did this task change" signal there is: the household's
+    // client writes no SEQUENCE and no LAST-MODIFIED, so a moved ETag is often
+    // the only thing that says an edit happened at all.
+    const etag = normalizeEtag(textOf(props.getetag));
+    for (const todo of parseTodoBlob(data).map((t) => ({ ...t, etag }))) {
       if (!todo.uid) {
         // Nothing to group it with, and nothing can be a child of it either.
         todos.push(todo);
@@ -598,7 +649,8 @@ export function clearTaskCache(cache = taskCache) {
  *   calendars: an already-fetched list, to avoid a second PROPFIND
  * @returns {Promise<Array<object>>} todos: {uid, recurrenceId, summary,
  *   description, due, dueIsDate, priority, status, completedAt,
- *   percentComplete, relatedTo, isCompleted, isCancelled}
+ *   percentComplete, relatedTo, etag, createdAt, stampAt, isCompleted,
+ *   isCancelled}
  */
 export async function fetchTodos(client, calendarSlug, options = {}) {
   const { now = Date.now(), cache = taskCache } = options;

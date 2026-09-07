@@ -985,8 +985,8 @@ a.tile:focus-visible {
 }
 
 /*
- * "Today" with nothing under it. Still a real divider -- it is the line #3
- * puts what is coming above and what happened below, and the target of the
+ * "Today" with nothing under it. Still a real divider -- it is the line with
+ * what is coming above it and what happened below, and the target of the
  * `#today` anchor -- but it must not look like a heading whose list failed to
  * load.
  */
@@ -996,10 +996,10 @@ a.tile:focus-visible {
 }
 
 /*
- * The anchor. `/#today` (and, from #3, the Latest toggle and the login
- * redirect) lands here, and the top bar is fixed, so without this the heading
- * would be scrolled to underneath it. No JavaScript is involved in any of
- * this: the anchor IS the mechanism.
+ * The anchor. `/#today` -- which is where the Latest toggle and the login
+ * redirect both point -- lands here, and the top bar is fixed, so without this
+ * the heading would be scrolled to underneath it. No JavaScript is involved in
+ * any of this: the anchor IS the mechanism.
  */
 #today {
   scroll-margin-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 0.75rem);
@@ -1336,4 +1336,135 @@ a.stream__row:focus-visible {
 .viewer__bar {
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+/* =========================================================================
+   #3 -- Tasks in the stream
+   The rows above the Today line (what is coming) and the task rows among the
+   file rows below it (what happened). Appended as its own block, like the
+   stream block above, so it can be read as a unit.
+   ========================================================================= */
+
+/* ---------- What is coming ---------- */
+
+/*
+ * A due-date group heading. The same shape as a day heading below the line --
+ * this is one axis, and two vocabularies of heading would break the illusion
+ * -- but lighter: what is coming is a plan, not a fact.
+ */
+.stream__day--due {
+  color: var(--ink-faint);
+  font-weight: 600;
+  border-bottom-style: dashed;
+}
+
+/*
+ * "Overdue", the group that sits directly against the Today line.
+ *
+ * The only red heading in the app, and it earns it: this is the one thing on
+ * the page that is asking for something to be done. The word says it too --
+ * the colour is reinforcement, never the message.
+ */
+.stream__day--overdue {
+  color: var(--danger);
+  border-bottom-color: var(--danger);
+  border-bottom-style: solid;
+}
+
+/*
+ * "Also 3 tasks without a due date", immediately above the Today line.
+ *
+ * A line, not a row: these tasks are not on the axis, and dressing them as a
+ * row would put them on it. It is still a link, and still a comfortable thing
+ * to hit with a thumb -- hence the padding rather than bare text.
+ */
+.stream__undated {
+  margin: 0.8rem 0 0;
+  font-size: 1rem;
+}
+
+.stream__undated a {
+  display: inline-block;
+  min-height: var(--tap);
+  padding: 0.9rem 0.2rem;
+  color: var(--accent-dark);
+}
+
+/* The caveat when a task list (or the whole calendar home) would not answer.
+   Quieter than the "you were last here" note at the top of the page: it is
+   about the app's own trouble, not about her. */
+.section__note--quiet {
+  color: var(--ink-faint);
+  margin: 0.8rem 0 0;
+}
+
+/* ---------- A task row ---------- */
+
+/*
+ * A task has no thumbnail, so the square a file's preview fills carries a small
+ * icon instead -- tinted, so the row still reads as one of the same list rather
+ * than as an icon floating in white space.
+ */
+.stream__thumb--task {
+  background: var(--accent-tint);
+}
+
+.stream__thumb--task .stream__icon {
+  width: 1.9rem;
+  height: 1.9rem;
+}
+
+/*
+ * The second line of a task row: what happened, then which list it happened in
+ * -- "Finished - School Tasks", or "Was due yesterday - Chores". Both parts are
+ * muted like a file row's folder label, because the task's own name is the
+ * thing being read.
+ */
+.stream__where .stream__what {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/*
+ * The list's own colour, as the owner set it in Tasks, shown as a dot rather
+ * than as coloured text: the colours are chosen for recognition, not for
+ * contrast against white, and a name in a pale accent would be the one
+ * unreadable thing on the page. The class comes from `accentClassFor` and sets
+ * --tile-accent; a list with no colour falls back to the app's accent.
+ *
+ * `--name` matters: `.stream__list` is the <ul> that holds a day's rows, and a
+ * span sharing that class inherits its `display: grid` -- which put the dot on
+ * one line and the list's name on the next.
+ */
+.stream__list-name::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin: 0 0.3rem 0 0.45rem;
+  border-radius: 999px;
+  background: var(--tile-accent, var(--accent));
+  vertical-align: baseline;
+}
+
+/*
+ * An overdue row. Red border, red tint, red "Was due ..." -- and the label says
+ * so in words, which is what carries the meaning for a colour-blind reader.
+ * The rule repeats for a row that is ALSO new, because the New tint would
+ * otherwise win on specificity and quietly un-red the one row on the page that
+ * is asking for something.
+ */
+.stream__item--overdue .stream__row,
+.stream__item--new.stream__item--overdue .stream__row {
+  border-color: var(--danger);
+  background: var(--danger-tint);
+}
+
+.stream__item--overdue .stream__where .stream__what {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.stream__item--overdue .stream__thumb--task {
+  background: var(--card);
 }

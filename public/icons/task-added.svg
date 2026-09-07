@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true">
+  <!-- Something new on the list: a plus, in the app's own accent rather than
+       the "done" green, so the two are never confused at a glance. -->
+  <circle cx="24" cy="24" r="18" fill="#1c4f8b"/>
+  <path fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" d="M24 15v18M15 24h18"/>
+</svg>
