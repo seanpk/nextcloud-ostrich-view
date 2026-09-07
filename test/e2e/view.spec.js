@@ -126,16 +126,23 @@ test.describe('Signed in', () => {
     );
   });
 
-  test('the PDF viewer offers no way to download, print or open another file', async ({ page }) => {
+  test('the pdf.js toolbar offers no way to print or open another file', async ({ page }) => {
     test.setTimeout(90_000);
     await page.goto(PDF);
     const frame = await pdfFrame(page);
 
+    // pdf.js's own chrome is stripped: its download and print buttons would
+    // reach the bytes through a URL of its choosing, and "open file" would
+    // let it read anything at all.
     await expect(
       frame.locator('#download, #print, #openFile, #secondaryToolbarToggle, #secondaryToolbar, [download]')
     ).toHaveCount(0);
-    // Nor on our own chrome around it.
-    await expect(page.locator('[download]')).toHaveCount(0);
+
+    // Our own bar around it offers exactly one thing, deliberately: the file,
+    // through our own /download/ route. See documents.spec.js.
+    const ours = page.locator('.viewer__bar a');
+    await expect(ours).toHaveCount(1);
+    await expect(ours).toHaveAttribute('href', '/download/Biology%20101/syllabus.pdf');
   });
 
   test('the PDF page still leaves Back reachable and does not scroll sideways', async ({ page }) => {
@@ -235,6 +242,8 @@ test.describe('Signed in', () => {
     await expect(page.locator('.viewer--plain')).toContainText('We can’t show this one');
     await expect(page.getByRole('link', { name: 'Back to the folder' })).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
+    // A .txt is not an office file, so nothing new is offered for it.
+    await expect(page.getByRole('link', { name: /^Download/ })).toHaveCount(0);
   });
 
   test('an SVG is never offered inline, and never served as one', async ({ page }) => {

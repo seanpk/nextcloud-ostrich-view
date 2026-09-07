@@ -19,7 +19,13 @@ const PAGES = [
   { name: 'a folder', path: '/files/Biology%20101', needsLogin: true },
   { name: 'a deep folder', path: '/files/Biology%20101/Lectures', needsLogin: true },
   { name: 'a photo', path: '/view/Biology%20101/Lectures/cell%20diagram.png', needsLogin: true },
+  { name: 'a Word document', path: '/view/Biology%20101/Lectures/Week%203%20Notes.docx', needsLogin: true },
   { name: 'an unpreviewable file', path: '/view/welcome.txt', needsLogin: true },
+  {
+    name: 'an office file we can only offer as a download',
+    path: '/view/Biology%20101/Lectures/marks.xlsx',
+    needsLogin: true,
+  },
   { name: 'login', path: '/login', needsLogin: false },
 ];
 
